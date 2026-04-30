@@ -387,7 +387,7 @@ EXPENSE_UPDATE_SQL = (
     f"paid_by={PH}, status={PH}, notes={PH} WHERE id={PH}"
 )
 EXPENSE_DELETE_SQL = f"DELETE FROM expenses WHERE id={PH}"
-WORKER_SCOPE = f" AND user_id = {PH} AND project_id = {PH}"
+SUPERVISOR_SCOPE = f" AND user_id = {PH} AND project_id = {PH}"
 
 
 def validated_expense(data):
@@ -446,7 +446,7 @@ def static_file(p):
 @app.route('/api/projects', methods=['GET'])
 @login_required
 def projects_list():
-    """Admins see every project; workers see only the one they're assigned to."""
+    """Admins see every project; supervisors see only the one they're assigned to."""
     if current_user.is_admin:
         rows, _ = q("SELECT id, name FROM projects ORDER BY name")
     elif current_user.project_id:
@@ -526,7 +526,7 @@ def project_update():
     return jsonify({'name': name})
 
 
-# ─── expenses (hybrid scope: admins see all, workers see their own project's rows they created) ───
+# ─── expenses (hybrid scope: admins see all, supervisors see their own project's rows they created) ───
 @app.route('/api/expenses', methods=['GET'])
 @login_required
 def expenses_list():
@@ -538,7 +538,7 @@ def expenses_list():
             (current_user.id, current_user.project_id),
         )
     else:
-        rows = []  # unassigned worker -> nothing to show
+        rows = []  # unassigned supervisor -> nothing to show
     out = []
     for r in rows:
         d = dict(r)
@@ -556,7 +556,7 @@ def expenses_create():
     if err:
         return jsonify({'error': err[0]}), err[1]
 
-    # Workers always stamp their own project. Admins may target any project,
+    # Supervisors always stamp their own project. Admins may target any project,
     # falling back to their own if none specified.
     if current_user.is_admin:
         project_id = data.get('project_id') or current_user.project_id
@@ -592,7 +592,7 @@ def expenses_update(eid):
     else:
         if not current_user.project_id:
             return jsonify({'error': 'Not found'}), 404
-        sql = EXPENSE_UPDATE_SQL + WORKER_SCOPE
+        sql = EXPENSE_UPDATE_SQL + SUPERVISOR_SCOPE
         params = base_params + (eid, current_user.id, current_user.project_id)
     _, rc = q(sql, params)
     if rc == 0:
@@ -608,7 +608,7 @@ def expenses_delete(eid):
     else:
         if not current_user.project_id:
             return jsonify({'error': 'Not found'}), 404
-        sql = EXPENSE_DELETE_SQL + WORKER_SCOPE
+        sql = EXPENSE_DELETE_SQL + SUPERVISOR_SCOPE
         params = (eid, current_user.id, current_user.project_id)
     _, rc = q(sql, params)
     if rc == 0:

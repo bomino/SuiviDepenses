@@ -27,7 +27,7 @@ End-to-end walkthrough for taking this app live on **Railway** with a managed **
 
 | Piece | Hosted on | URL pattern |
 |---|---|---|
-| Flask API + PWA shell | Railway (gunicorn) | `https://<service>.up.railway.app` |
+| Flask API + PWA shell | Railway (gunicorn) | `https://suivi-eval.up.railway.app` |
 | Postgres database | Railway plugin | private network only |
 | Source of truth | GitHub | `https://github.com/bomino/SuiviDepenses` |
 
@@ -103,7 +103,7 @@ To rotate `SECRET_KEY` later, generate a new value and replace it. All existing 
 
 Railway auto-builds whenever you push to `main`, but the **first time** you'll trigger it manually:
 
-1. **Settings** tab on the service → **Networking** section → click **Generate Domain**. You get `https://<something>.up.railway.app`.
+1. **Settings** tab on the service → **Networking** section → click **Generate Domain**. You get `https://<something>.up.railway.app` (this project lives at `https://suivi-eval.up.railway.app`).
 2. **Deployments** tab → if the last deploy is still showing the failed build from Step 1, click **Deploy** → **Redeploy** to use the new variables.
 3. Watch the build log. Successful boot looks like:
 
@@ -125,7 +125,7 @@ Railway auto-builds whenever you push to `main`, but the **first time** you'll t
 Three checks:
 
 ```bash
-APP=https://<your-service>.up.railway.app
+APP=https://suivi-eval.up.railway.app
 
 # 1. Health endpoint should report engine=postgres
 curl $APP/health
@@ -188,7 +188,7 @@ No downtime, no data migration step needed for additive schema changes (because 
 - **Build status:** **Deployments** tab shows every deploy with status, logs, and a one-click rollback button.
 - **Email alerts:** Project settings → **Notifications** → enable build/crash alerts.
 
-Want a third-party watcher (UptimeRobot, BetterStack)? Point it at `https://<app>/health`. Alert if `ok != true` or status ≠ 200 for >2 minutes.
+Want a third-party watcher (UptimeRobot, BetterStack)? Point it at `https://suivi-eval.up.railway.app/health`. Alert if `ok != true` or status ≠ 200 for >2 minutes.
 
 ---
 
@@ -267,10 +267,10 @@ There are two ways to manage users after that — the in-app panel (preferred) a
 
 ### Multi-site model
 
-The app is **multi-project**: one Railway deploy = one organization with **N construction projects**. Every expense is tied to both a user and a project. Admins manage projects and assignments; workers are scoped to whichever project they're assigned to.
+The app is **multi-project**: one Railway deploy = one organization with **N construction projects**. Every expense is tied to both a user and a project. Admins manage projects and assignments; supervisors are scoped to whichever project they're assigned to.
 
 - **Admin** — sees every expense across **every project**. Can create/rename/delete projects, add/delete users, assign users to projects, edit or delete anyone's expense.
-- **Worker** (default) — sees only their own expenses **within their assigned project**. Cannot switch projects (admin reassigns them). An **unassigned** worker sees an empty state and cannot add expenses until an admin assigns them.
+- **Supervisor** (default) — sees only their own expenses **within their assigned project**. Cannot switch projects (admin reassigns them). An **unassigned** supervisor sees an empty state and cannot add expenses until an admin assigns them.
 
 The bootstrap user is admin and is assigned to the project named in `INITIAL_PROJECT_NAME` (created automatically on first boot).
 
@@ -285,7 +285,7 @@ After the bootstrap admin logs in, a **Manage Users** button appears in the head
 
 **Users** (below)
 - **Add user** — fill the form (username, password ≥6 chars, optional admin checkbox) → click *Add User*. The user starts unassigned; assign them via the dropdown next to their row, or set `project_id` in the API.
-- **Project dropdown** on each row — picks which project this user belongs to. Workers immediately see expenses for that project on their next reload.
+- **Project dropdown** on each row — picks which project this user belongs to. Supervisors immediately see expenses for that project on their next reload.
 - **Reset password** — prompt for a new password.
 - **Promote / demote** — toggles admin role.
 - **Delete user** — removes the user and all their expenses (cascade).

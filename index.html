@@ -605,7 +605,7 @@
     margin: 18px 0 10px;
   }
 
-  /* worker empty-state when not assigned to a project */
+  /* supervisor empty-state when not assigned to a project */
   .no-project-banner {
     background: rgba(245,158,11,.12);
     border: 1px solid rgba(245,158,11,.4);
@@ -1434,13 +1434,13 @@ var dict = {
     adminPwdResetFailed: "Could not reset password",
     adminPwdTooShort: "Password must be at least 6 characters",
     adminMakeAdmin: "Make admin",
-    adminMakeWorker: "Make worker",
+    adminMakeWorker: "Make supervisor",
     adminPromoted: "User promoted to admin",
-    adminDemoted: "Admin demoted to worker",
+    adminDemoted: "Admin demoted to supervisor",
     adminUpdateFailed: "Could not update user",
     adminLoadFailed: "Could not load user list",
     adminRoleTagAdmin: "Admin",
-    adminRoleTagUser: "Worker",
+    adminRoleTagUser: "Supervisor",
     confirmDeleteUser: "Delete user '{user}'? Their expenses will be removed too.",
     promptNewPassword: "New password for {user}:",
     adminProjectsTitle: "Projects",
@@ -1563,7 +1563,7 @@ var dict = {
     adminUpdateFailed: "Échec de la mise à jour",
     adminLoadFailed: "Impossible de charger la liste",
     adminRoleTagAdmin: "Admin",
-    adminRoleTagUser: "Ouvrier",
+    adminRoleTagUser: "Superviseur",
     confirmDeleteUser: "Supprimer l'utilisateur « {user} » ? Ses dépenses seront aussi supprimées.",
     promptNewPassword: "Nouveau mot de passe pour {user} :",
     adminProjectsTitle: "Projets",
@@ -1681,7 +1681,7 @@ function applyLang() {
   var np = document.getElementById('newPassword'); if (np) np.placeholder = d.newPassword;
   var npn = document.getElementById('newProjectName'); if (npn) npn.placeholder = d.newProjectName;
 
-  /* no-project banner for unassigned workers */
+  /* no-project banner for unassigned supervisors */
   assignText('noProjectTitle', d.noProjectTitle);
   assignText('noProjectMsg', d.noProjectMsg);
 
@@ -1768,7 +1768,7 @@ function loadFromApi() {
 }
 
 function updateNoProjectBanner() {
-  // Workers without a project assignment can't add expenses; surface that clearly.
+  // Supervisors without a project assignment can't add expenses; surface that clearly.
   var banner = document.getElementById('noProjectBanner');
   var formTitle = document.getElementById('formTitle');
   var formSection = formTitle ? formTitle.closest('.section') : null;

@@ -2,7 +2,9 @@
 
 Bienvenue dans **Suivi des Dépenses**, l'application bilingue (français/anglais) pour suivre les dépenses de chantier en temps réel, partagées entre l'équipe.
 
-Ce guide s'adresse aux **utilisateurs finaux** : administrateurs (chefs de chantier, responsables) et ouvriers (foremen, manœuvres). Pour la documentation technique de déploiement, voir `DEPLOY.md`.
+> **Adresse de l'application :** https://suivi-eval.up.railway.app
+
+Ce guide s'adresse aux **utilisateurs finaux** : administrateurs (chefs de projet, responsables) et superviseurs (chefs de chantier, contremaîtres). Pour la documentation technique de déploiement, voir `DEPLOY.md`.
 
 ---
 
@@ -10,7 +12,7 @@ Ce guide s'adresse aux **utilisateurs finaux** : administrateurs (chefs de chant
 
 1. [Présentation rapide](#1-présentation-rapide)
 2. [Premiers pas](#2-premiers-pas)
-3. [Pour les ouvriers](#3-pour-les-ouvriers)
+3. [Pour les superviseurs](#3-pour-les-superviseurs)
 4. [Pour les administrateurs](#4-pour-les-administrateurs)
 5. [Installer l'application sur votre téléphone](#5-installer-lapplication-sur-votre-téléphone)
 6. [Trucs et astuces](#6-trucs-et-astuces)
@@ -28,9 +30,9 @@ Saisir, classer et suivre toutes les dépenses d'un ou plusieurs chantiers — m
 | Rôle | Ce qu'ils peuvent faire |
 |---|---|
 | **Admin** (chef de projet) | Voir **toutes** les dépenses de **tous les projets**. Créer/renommer/supprimer des projets. Ajouter/supprimer des utilisateurs. Affecter chaque utilisateur à un projet. Modifier ou supprimer n'importe quelle dépense. |
-| **Ouvrier** (par défaut) | Voir uniquement les dépenses qu'il a saisies, **sur le projet auquel il est affecté**. Ajouter, modifier, supprimer ses propres dépenses. |
+| **Superviseur** (par défaut) | Voir uniquement les dépenses qu'il a saisies, **sur le projet auquel il est affecté**. Ajouter, modifier, supprimer ses propres dépenses. |
 
-**Multi-projet** — une seule installation peut suivre plusieurs chantiers en parallèle (ex. « Villa Tower », « Rénovation 14e »). Les ouvriers ne voient que leur chantier ; l'admin voit tout.
+**Multi-projet** — une seule installation peut suivre plusieurs chantiers en parallèle (ex. « Villa Tower », « Rénovation 14e »). Les superviseurs ne voient que leur chantier ; l'admin voit tout.
 
 ---
 
@@ -38,7 +40,7 @@ Saisir, classer et suivre toutes les dépenses d'un ou plusieurs chantiers — m
 
 ### 2.1 Se connecter
 
-1. Ouvrez l'URL fournie par votre administrateur (ex. `https://votre-app.up.railway.app`).
+1. Ouvrez l'URL de l'application : https://suivi-eval.up.railway.app
 2. L'écran de **Connexion** s'affiche.
 3. Saisissez votre **nom d'utilisateur** et votre **mot de passe**.
 4. Cliquez sur **Se connecter**.
@@ -69,7 +71,7 @@ Cliquez sur **FR** (en haut à droite) pour passer en français ou **EN** pour p
 
 ---
 
-## 3. Pour les ouvriers
+## 3. Pour les superviseurs
 
 ### 3.1 Ajouter une dépense
 
@@ -141,7 +143,7 @@ L'admin a accès à un bouton supplémentaire dans l'en-tête : **Gérer les uti
 1. Cliquez sur **Supprimer** (rouge) à côté du projet.
 2. Confirmez.
 
-> ⚠️ Supprimer un projet **efface toutes ses dépenses** et **désaffecte les ouvriers qui y étaient**. Leurs comptes restent actifs, mais ils verront « Aucun projet affecté » jusqu'à ce qu'on les réaffecte.
+> ⚠️ Supprimer un projet **efface toutes ses dépenses** et **désaffecte les superviseurs qui y étaient**. Leurs comptes restent actifs, mais ils verront « Aucun projet affecté » jusqu'à ce qu'on les réaffecte.
 
 ### 4.2 Ajouter un utilisateur
 
@@ -255,7 +257,7 @@ Il est recommandé de cliquer sur **Exporter** au moins une fois par semaine pou
 | La pastille indique **Hors ligne** | Connexion Wi-Fi/4G perdue | Reconnectez-vous au réseau ; la pastille redevient **En ligne** automatiquement. |
 | Les boutons sont trop petits sur mon téléphone | Ancienne version cachée par le navigateur | Forcez l'actualisation : sur mobile, fermez complètement l'application (pas juste minimiser) et rouvrez-la. Sur ordinateur : Ctrl+Maj+R (Windows) ou Cmd+Maj+R (Mac). |
 | Mon CSV exporté affiche des caractères bizarres dans Excel | Encoding | À l'ouverture dans Excel, choisir **UTF-8** comme encodage. Le fichier inclut déjà un BOM ; LibreOffice Calc et Google Sheets le détectent automatiquement. |
-| Je vois des dépenses qui ne sont pas les miennes (en tant qu'ouvrier) | Vous êtes admin sans le savoir, ou bug | Demandez à votre admin de vérifier votre rôle dans **Gérer les utilisateurs**. |
+| Je vois des dépenses qui ne sont pas les miennes (en tant que superviseur) | Vous êtes admin sans le savoir, ou bug | Demandez à votre admin de vérifier votre rôle dans **Gérer les utilisateurs**. |
 | L'application ne se charge pas du tout | Serveur indisponible ou problème réseau | Réessayez dans quelques minutes. Si ça persiste, prévenez votre administrateur (qui peut consulter le statut de déploiement Railway). |
 | « Vous n'êtes pas affecté à un projet à renommer » (admin) | Vous êtes admin mais désaffecté | Réaffectez-vous via **Gérer les utilisateurs**, ou créez un projet et auto-affectez-vous. |
 
