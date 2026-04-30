@@ -20,16 +20,26 @@ A bilingual (EN/FR) PWA for tracking construction project expenses. Works standa
 
 Push `index.html`, `manifest.json`, and `sw.js` to a repo with GitHub Pages enabled. Open the URL — data persists in the browser (localStorage; per-device, no shared state).
 
-### Option 2: Local server (shared SQLite storage)
+### Option 2: Local server (SQLite, single machine or LAN)
 
 ```bash
 pip install -r requirements.txt
 python server.py
 ```
 
-Open `http://localhost:5000`. All users on the network see the same database.
+Open `http://localhost:5000`. Data goes to `expenses.db` next to `server.py`. Anyone on the network can hit the server.
 
-> **Security note:** the server has no authentication. It binds to `0.0.0.0`, so anyone on the LAN can read, modify, or wipe expenses. Run it only on a trusted network, or put it behind a reverse proxy with auth. Bind to `127.0.0.1` (edit `server.py`) if you only need single-machine access.
+### Option 3: Production deploy (Railway + Postgres)
+
+The same `server.py` switches to Postgres automatically when `DATABASE_URL` is set in the environment. On Railway:
+
+1. Connect the GitHub repo and add a Postgres plugin — Railway injects `DATABASE_URL` for you.
+2. The included `Procfile` runs `gunicorn` with two workers.
+3. First boot creates the schema (`CREATE TABLE IF NOT EXISTS`).
+
+Locally you can mimic prod by exporting `DATABASE_URL=postgres://...` before running, or just leave it unset to use SQLite.
+
+> **Security note:** there is no authentication. Once on a public URL, anyone with the URL can read, modify, or wipe expenses. Add an auth layer (shared bearer token, basic auth, or a real identity provider) before sharing the URL.
 
 ## Files
 
@@ -38,8 +48,10 @@ Open `http://localhost:5000`. All users on the network see the same database.
 | `index.html` | PWA frontend with dark UI |
 | `manifest.json` | PWA manifest |
 | `sw.js` | Service worker for offline caching |
-| `server.py` | Flask + SQLite API backend |
-| `requirements.txt` | Python dependency (Flask) |
+| `server.py` | Flask API backend (SQLite locally, Postgres if `DATABASE_URL` set) |
+| `Procfile` | Production process declaration (`gunicorn`) |
+| `requirements.txt` | Python dependencies (Flask, gunicorn, psycopg) |
+| `scripts/make_icons.py` | Build-time icon regenerator (Pillow, not a runtime dep) |
 
 ## API
 
