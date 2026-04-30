@@ -1,6 +1,10 @@
 # Construction Expense Tracker
 
-A bilingual (EN/FR) PWA for tracking construction project expenses. Works standalone via localStorage or with a Flask + SQLite backend for shared multi-user access. Deployable on GitHub Pages.
+A bilingual (EN/FR) PWA for tracking construction project expenses. Works standalone via localStorage or with a Flask + SQLite/Postgres backend for shared multi-user, multi-project access. Deployable on GitHub Pages or Railway.
+
+> **Documentation index**
+> - [`GUIDE.md`](./GUIDE.md) — French user guide for admins and workers (login, daily usage, installing on phone, troubleshooting).
+> - [`DEPLOY.md`](./DEPLOY.md) — English deployment guide for Railway + Postgres (env vars, custom domain, monitoring, backups, rollback).
 
 ## Features
 
