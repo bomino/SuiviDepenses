@@ -91,6 +91,7 @@ Still in the service's **Variables** tab, add these three:
 | `SECRET_KEY` | a long random string (e.g. `python -c "import secrets; print(secrets.token_hex(32))"`) | Signs the session cookies. **Required in production** — `server.py` refuses to boot without it when `DATABASE_URL` is set. |
 | `INITIAL_USERNAME` | the first admin's username (e.g. `lawry`) | One-time bootstrap. After the first user exists, this var is ignored on subsequent boots. |
 | `INITIAL_PASSWORD` | a strong password for that user | Same — read once on the very first boot, then irrelevant. |
+| `INITIAL_PROJECT_NAME` *(optional)* | a project name (e.g. `Villa Tower`) | Bootstrap creates a default project with this name and assigns the admin to it. Defaults to `My Project`. Subsequent projects are created from the in-app **Manage Users** panel. |
 
 After the first deploy succeeds, you may delete `INITIAL_USERNAME` / `INITIAL_PASSWORD` from Railway — they're not read again. **Do not** delete `SECRET_KEY`; rotating it logs everyone out (sessions become invalid).
 
@@ -264,21 +265,30 @@ Auth is **Flask-Login + bcrypt** (Tier 2) — session cookies, server-side passw
 
 There are two ways to manage users after that — the in-app panel (preferred) and the CLI fallback.
 
-### Roles
+### Multi-site model
 
-- **Admin** — sees every expense across the whole crew, can add/delete/rename users, can rename the project, can edit or delete anyone's expenses.
-- **Worker** (default) — sees only their own expenses. Can add, edit, delete their own rows. Cannot see other users' data and cannot manage users.
+The app is **multi-project**: one Railway deploy = one organization with **N construction projects**. Every expense is tied to both a user and a project. Admins manage projects and assignments; workers are scoped to whichever project they're assigned to.
 
-The bootstrap user is admin; everyone they create is a worker by default unless the admin checks the "Make this user an admin" box.
+- **Admin** — sees every expense across **every project**. Can create/rename/delete projects, add/delete users, assign users to projects, edit or delete anyone's expense.
+- **Worker** (default) — sees only their own expenses **within their assigned project**. Cannot switch projects (admin reassigns them). An **unassigned** worker sees an empty state and cannot add expenses until an admin assigns them.
+
+The bootstrap user is admin and is assigned to the project named in `INITIAL_PROJECT_NAME` (created automatically on first boot).
 
 ### In-app panel (preferred)
 
-After the bootstrap admin logs in, a **Manage Users** button appears in the header (visible only to admins). Click it:
+After the bootstrap admin logs in, a **Manage Users** button appears in the header (visible only to admins). The panel has two sections:
 
-- **Add user** — fill the form (username, password ≥6 chars, optional admin checkbox) → click *Add User*.
-- **Reset password** — click the *Reset password* button next to a user → enter the new password in the prompt.
-- **Promote / demote** — *Make admin* / *Make worker* button toggles their role.
-- **Delete user** — red *Delete* button removes the user and **all their expenses** (cascade).
+**Projects** (top)
+- **Add project** — type a unique name → *Add Project*.
+- **Rename** — prompts for a new name.
+- **Delete** — red button. Deletes the project, all its expenses (cascade), and unassigns any users that were on it (they keep their accounts but show as "unassigned" until an admin reassigns them).
+
+**Users** (below)
+- **Add user** — fill the form (username, password ≥6 chars, optional admin checkbox) → click *Add User*. The user starts unassigned; assign them via the dropdown next to their row, or set `project_id` in the API.
+- **Project dropdown** on each row — picks which project this user belongs to. Workers immediately see expenses for that project on their next reload.
+- **Reset password** — prompt for a new password.
+- **Promote / demote** — toggles admin role.
+- **Delete user** — removes the user and all their expenses (cascade).
 
 Self-protection: you cannot delete yourself or remove your own admin role from the panel. To recover from accidental lockout, see the CLI fallback below.
 

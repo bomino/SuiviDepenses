@@ -41,8 +41,6 @@ if USE_POSTGRES:
     PH = '%s'
     AMOUNT_TYPE = 'NUMERIC'
     LIST_ORDER = "ORDER BY date DESC, id DESC"
-    SEED_PROJECT = "INSERT INTO project (id, name) VALUES (1, 'My Project') ON CONFLICT (id) DO NOTHING"
-    UPSERT_PROJECT = f"INSERT INTO project (id, name) VALUES (1, {PH}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name"
 
     _pool = ConnectionPool(
         DATABASE_URL,
@@ -61,8 +59,6 @@ else:
     PH = '?'
     AMOUNT_TYPE = 'REAL'
     LIST_ORDER = "ORDER BY date DESC, rowid DESC"
-    SEED_PROJECT = "INSERT OR IGNORE INTO project (id, name) VALUES (1, 'My Project')"
-    UPSERT_PROJECT = f"INSERT OR REPLACE INTO project (id, name) VALUES (1, {PH})"
 
     @contextmanager
     def get_conn():
@@ -88,11 +84,14 @@ def q(sql, params=()):
 
 
 def _schema_needs_wipe(cur):
-    """Return True if any new column from the multi-tenant migration is missing.
-    Idempotent: once wiped+recreated, both SELECTs succeed and we never wipe again."""
+    """Return True if any new column from the latest migration is missing.
+    Each schema migration appends a probe here so subsequent boots re-detect
+    correctly. Idempotent once the new columns exist."""
     try:
         cur.execute("SELECT is_admin FROM users LIMIT 1")
         cur.execute("SELECT user_id FROM expenses LIMIT 1")
+        cur.execute("SELECT project_id FROM users LIMIT 1")  # multi-site migration
+        cur.execute("SELECT project_id FROM expenses LIMIT 1")
         return False
     except Exception:
         # Postgres aborts the whole transaction when a SELECT references a
@@ -106,25 +105,34 @@ def init_db():
     with get_conn() as conn:
         cur = conn.cursor()
         if _schema_needs_wipe(cur):
-            # First boot of the multi-tenant schema. Wipe the legacy tables;
-            # the user opted in to wipe-and-recreate during planning.
+            # First boot of a new schema generation. The user opted in to
+            # wipe-and-recreate when this app moved to multi-tenant.
             cur.execute("DROP TABLE IF EXISTS expenses")
-            cur.execute("DROP TABLE IF EXISTS project")
+            cur.execute("DROP TABLE IF EXISTS project")    # legacy singleton
+            cur.execute("DROP TABLE IF EXISTS projects")   # current
             cur.execute("DROP TABLE IF EXISTS users")
             conn.commit()
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL
+            )
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
-                is_admin BOOLEAN NOT NULL DEFAULT FALSE
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
             )
         """)
         cur.execute(f"""
             CREATE TABLE IF NOT EXISTS expenses (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 description TEXT NOT NULL,
                 amount {AMOUNT_TYPE} NOT NULL,
                 category TEXT NOT NULL DEFAULT 'Materials',
@@ -134,13 +142,6 @@ def init_db():
                 notes TEXT DEFAULT ''
             )
         """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS project (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL DEFAULT 'My Project'
-            )
-        """)
-        cur.execute(SEED_PROJECT)
         conn.commit()
 
 
@@ -148,8 +149,10 @@ init_db()
 
 
 def bootstrap_initial_user():
-    """If no users exist, create one from INITIAL_USERNAME / INITIAL_PASSWORD env vars.
-    Idempotent: skips when any user already exists or when env vars are unset."""
+    """If no users exist, create:
+       - a default project (named via INITIAL_PROJECT_NAME, default 'My Project')
+       - an admin user (from INITIAL_USERNAME / INITIAL_PASSWORD) assigned to it.
+    Idempotent: skips when any user already exists."""
     rows, _ = q("SELECT COUNT(*) AS c FROM users")
     count = rows[0]['c'] if rows else 0
     if count > 0:
@@ -163,10 +166,21 @@ def bootstrap_initial_user():
                   "Run scripts/add_user.py to create one before the app is usable.")
         return
 
+    project_name = (os.environ.get('INITIAL_PROJECT_NAME') or 'My Project').strip() or 'My Project'
+
+    # Reuse an existing project of the same name if one happens to be there;
+    # otherwise create one.
+    existing, _ = q(f"SELECT id FROM projects WHERE name = {PH}", (project_name,))
+    if existing:
+        project_id = existing[0]['id']
+    else:
+        project_id = uuid.uuid4().hex
+        q(f"INSERT INTO projects (id, name) VALUES ({PH}, {PH})", (project_id, project_name))
+
     pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    q(f"INSERT INTO users (id, username, password_hash, is_admin) VALUES ({PH}, {PH}, {PH}, {PH})",
-      (uuid.uuid4().hex, username, pw_hash, True))
-    print(f"Bootstrapped initial admin user: {username}")
+    q(f"INSERT INTO users (id, username, password_hash, is_admin, project_id) VALUES ({PH}, {PH}, {PH}, {PH}, {PH})",
+      (uuid.uuid4().hex, username, pw_hash, True, project_id))
+    print(f"Bootstrapped initial admin user '{username}' on project '{project_name}'")
 
 
 bootstrap_initial_user()
@@ -174,18 +188,20 @@ bootstrap_initial_user()
 
 # ─── auth ───
 class User(UserMixin):
-    def __init__(self, id, username, is_admin=False):
+    def __init__(self, id, username, is_admin=False, project_id=None):
         self.id = id
         self.username = username
         self.is_admin = bool(is_admin)
+        self.project_id = project_id
 
 
 @login_manager.user_loader
 def load_user(user_id):
-    rows, _ = q(f"SELECT id, username, is_admin FROM users WHERE id = {PH}", (user_id,))
+    rows, _ = q(f"SELECT id, username, is_admin, project_id FROM users WHERE id = {PH}", (user_id,))
     if not rows:
         return None
-    return User(rows[0]['id'], rows[0]['username'], rows[0]['is_admin'])
+    r = rows[0]
+    return User(r['id'], r['username'], r['is_admin'], r['project_id'])
 
 
 @login_manager.unauthorized_handler
@@ -204,6 +220,23 @@ def admin_required(f):
     return wrapper
 
 
+def _user_payload(uid, username, is_admin, project_id):
+    """Common shape returned by /api/login and /api/me. Joins the project name
+    so the frontend has everything it needs in one round trip."""
+    project_name = None
+    if project_id:
+        rows, _ = q(f"SELECT name FROM projects WHERE id = {PH}", (project_id,))
+        if rows:
+            project_name = rows[0]['name']
+    return {
+        'id': uid,
+        'username': username,
+        'is_admin': bool(is_admin),
+        'project_id': project_id,
+        'project_name': project_name,
+    }
+
+
 @app.route('/api/login', methods=['POST'])
 def api_login():
     data = request.get_json(force=True)
@@ -212,7 +245,7 @@ def api_login():
     if not username or not password:
         return jsonify({'error': 'Username and password required'}), 400
 
-    rows, _ = q(f"SELECT id, username, password_hash, is_admin FROM users WHERE username = {PH}", (username,))
+    rows, _ = q(f"SELECT id, username, password_hash, is_admin, project_id FROM users WHERE username = {PH}", (username,))
     if not rows:
         return jsonify({'error': 'Invalid credentials'}), 401
 
@@ -220,8 +253,8 @@ def api_login():
     if not bcrypt.checkpw(password.encode('utf-8'), r['password_hash'].encode('utf-8')):
         return jsonify({'error': 'Invalid credentials'}), 401
 
-    login_user(User(r['id'], r['username'], r['is_admin']), remember=True)
-    return jsonify({'username': r['username'], 'is_admin': bool(r['is_admin'])})
+    login_user(User(r['id'], r['username'], r['is_admin'], r['project_id']), remember=True)
+    return jsonify(_user_payload(r['id'], r['username'], r['is_admin'], r['project_id']))
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -233,7 +266,9 @@ def api_logout():
 @app.route('/api/me', methods=['GET'])
 def api_me():
     if current_user.is_authenticated:
-        return jsonify({'username': current_user.username, 'is_admin': current_user.is_admin})
+        return jsonify(_user_payload(
+            current_user.id, current_user.username, current_user.is_admin, current_user.project_id
+        ))
     return jsonify({'error': 'Authentication required'}), 401
 
 
@@ -241,9 +276,20 @@ def api_me():
 @app.route('/api/users', methods=['GET'])
 @admin_required
 def users_list():
-    rows, _ = q("SELECT id, username, is_admin FROM users ORDER BY username")
+    rows, _ = q("""
+        SELECT u.id, u.username, u.is_admin, u.project_id, p.name AS project_name
+        FROM users u
+        LEFT JOIN projects p ON p.id = u.project_id
+        ORDER BY u.username
+    """)
     return jsonify([
-        {'id': r['id'], 'username': r['username'], 'is_admin': bool(r['is_admin'])}
+        {
+            'id': r['id'],
+            'username': r['username'],
+            'is_admin': bool(r['is_admin']),
+            'project_id': r['project_id'],
+            'project_name': r['project_name'],
+        }
         for r in rows
     ])
 
@@ -255,6 +301,7 @@ def users_create():
     username = (data.get('username') or '').strip()
     password = (data.get('password') or '').strip()
     is_admin = bool(data.get('is_admin'))
+    project_id = data.get('project_id') or None
     if not username:
         return jsonify({'error': 'Username required'}), 400
     if len(password) < 6:
@@ -264,11 +311,33 @@ def users_create():
     if existing:
         return jsonify({'error': 'Username already taken'}), 409
 
+    if project_id:
+        proj, _ = q(f"SELECT id FROM projects WHERE id = {PH}", (project_id,))
+        if not proj:
+            return jsonify({'error': 'Project not found'}), 400
+
     pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     new_id = uuid.uuid4().hex
-    q(f"INSERT INTO users (id, username, password_hash, is_admin) VALUES ({PH}, {PH}, {PH}, {PH})",
-      (new_id, username, pw_hash, is_admin))
-    return jsonify({'id': new_id, 'username': username, 'is_admin': is_admin}), 201
+    q(f"INSERT INTO users (id, username, password_hash, is_admin, project_id) VALUES ({PH}, {PH}, {PH}, {PH}, {PH})",
+      (new_id, username, pw_hash, is_admin, project_id))
+    return jsonify({
+        'id': new_id, 'username': username, 'is_admin': is_admin, 'project_id': project_id
+    }), 201
+
+
+@app.route('/api/users/<uid>/project', methods=['POST'])
+@admin_required
+def users_set_project(uid):
+    data = request.get_json(force=True)
+    project_id = data.get('project_id') or None
+    if project_id:
+        proj, _ = q(f"SELECT id FROM projects WHERE id = {PH}", (project_id,))
+        if not proj:
+            return jsonify({'error': 'Project not found'}), 400
+    _, rc = q(f"UPDATE users SET project_id = {PH} WHERE id = {PH}", (project_id, uid))
+    if rc == 0:
+        return jsonify({'error': 'User not found'}), 404
+    return '', 204
 
 
 @app.route('/api/users/<uid>', methods=['DELETE'])
@@ -310,15 +379,15 @@ def users_set_admin(uid):
 
 
 EXPENSE_INSERT_SQL = (
-    f"INSERT INTO expenses (id, user_id, description, amount, category, date, paid_by, status, notes) "
-    f"VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})"
+    f"INSERT INTO expenses (id, user_id, project_id, description, amount, category, date, paid_by, status, notes) "
+    f"VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})"
 )
 EXPENSE_UPDATE_SQL = (
     f"UPDATE expenses SET description={PH}, amount={PH}, category={PH}, date={PH}, "
     f"paid_by={PH}, status={PH}, notes={PH} WHERE id={PH}"
 )
 EXPENSE_DELETE_SQL = f"DELETE FROM expenses WHERE id={PH}"
-SCOPE_CLAUSE = f" AND user_id = {PH}"
+WORKER_SCOPE = f" AND user_id = {PH} AND project_id = {PH}"
 
 
 def validated_expense(data):
@@ -373,31 +442,103 @@ def static_file(p):
     abort(404)
 
 
-# ─── project ───
+# ─── projects (admin: full CRUD; everyone: read-only list of theirs) ───
+@app.route('/api/projects', methods=['GET'])
+@login_required
+def projects_list():
+    """Admins see every project; workers see only the one they're assigned to."""
+    if current_user.is_admin:
+        rows, _ = q("SELECT id, name FROM projects ORDER BY name")
+    elif current_user.project_id:
+        rows, _ = q(f"SELECT id, name FROM projects WHERE id = {PH}", (current_user.project_id,))
+    else:
+        rows = []
+    return jsonify([{'id': r['id'], 'name': r['name']} for r in rows])
+
+
+@app.route('/api/projects', methods=['POST'])
+@admin_required
+def projects_create():
+    data = request.get_json(force=True)
+    name = (data.get('name') or '').strip()[:100]
+    if not name:
+        return jsonify({'error': 'Project name required'}), 400
+    existing, _ = q(f"SELECT id FROM projects WHERE name = {PH}", (name,))
+    if existing:
+        return jsonify({'error': 'Project name already taken'}), 409
+    pid = uuid.uuid4().hex
+    q(f"INSERT INTO projects (id, name) VALUES ({PH}, {PH})", (pid, name))
+    return jsonify({'id': pid, 'name': name}), 201
+
+
+@app.route('/api/projects/<pid>', methods=['PUT'])
+@admin_required
+def projects_rename(pid):
+    data = request.get_json(force=True)
+    name = (data.get('name') or '').strip()[:100]
+    if not name:
+        return jsonify({'error': 'Project name required'}), 400
+    clash, _ = q(f"SELECT id FROM projects WHERE name = {PH} AND id != {PH}", (name, pid))
+    if clash:
+        return jsonify({'error': 'Project name already taken'}), 409
+    _, rc = q(f"UPDATE projects SET name = {PH} WHERE id = {PH}", (name, pid))
+    if rc == 0:
+        return jsonify({'error': 'Project not found'}), 404
+    return jsonify({'id': pid, 'name': name})
+
+
+@app.route('/api/projects/<pid>', methods=['DELETE'])
+@admin_required
+def projects_delete(pid):
+    """Cascades to expenses; users assigned to it get project_id = NULL."""
+    _, rc = q(f"DELETE FROM projects WHERE id = {PH}", (pid,))
+    if rc == 0:
+        return jsonify({'error': 'Project not found'}), 404
+    return '', 204
+
+
+# ─── /api/project (singular) — convenience read/rename of the caller's current project ───
 @app.route('/api/project', methods=['GET'])
 @login_required
 def project_get():
-    rows, _ = q("SELECT name FROM project WHERE id=1")
-    return jsonify({'name': rows[0]['name'] if rows else 'My Project'})
+    if not current_user.project_id:
+        return jsonify({'name': None, 'id': None})
+    rows, _ = q(f"SELECT id, name FROM projects WHERE id = {PH}", (current_user.project_id,))
+    if not rows:
+        return jsonify({'name': None, 'id': None})
+    return jsonify({'id': rows[0]['id'], 'name': rows[0]['name']})
 
 
 @app.route('/api/project', methods=['PUT'])
 @admin_required
 def project_update():
+    """Renames the admin's currently-assigned project."""
+    if not current_user.project_id:
+        return jsonify({'error': 'You are not assigned to a project to rename'}), 400
     data = request.get_json(force=True)
-    name = (data.get('name') or '').strip()[:100] or 'My Project'
-    q(UPSERT_PROJECT, (name,))
+    name = (data.get('name') or '').strip()[:100]
+    if not name:
+        return jsonify({'error': 'Project name required'}), 400
+    clash, _ = q(f"SELECT id FROM projects WHERE name = {PH} AND id != {PH}", (name, current_user.project_id))
+    if clash:
+        return jsonify({'error': 'Project name already taken'}), 409
+    q(f"UPDATE projects SET name = {PH} WHERE id = {PH}", (name, current_user.project_id))
     return jsonify({'name': name})
 
 
-# ─── expenses (hybrid scope: admins see all, workers see their own) ───
+# ─── expenses (hybrid scope: admins see all, workers see their own project's rows they created) ───
 @app.route('/api/expenses', methods=['GET'])
 @login_required
 def expenses_list():
     if current_user.is_admin:
         rows, _ = q(f"SELECT * FROM expenses {LIST_ORDER}")
+    elif current_user.project_id:
+        rows, _ = q(
+            f"SELECT * FROM expenses WHERE user_id = {PH} AND project_id = {PH} {LIST_ORDER}",
+            (current_user.id, current_user.project_id),
+        )
     else:
-        rows, _ = q(f"SELECT * FROM expenses WHERE user_id = {PH} {LIST_ORDER}", (current_user.id,))
+        rows = []  # unassigned worker -> nothing to show
     out = []
     for r in rows:
         d = dict(r)
@@ -415,11 +556,25 @@ def expenses_create():
     if err:
         return jsonify({'error': err[0]}), err[1]
 
+    # Workers always stamp their own project. Admins may target any project,
+    # falling back to their own if none specified.
+    if current_user.is_admin:
+        project_id = data.get('project_id') or current_user.project_id
+    else:
+        project_id = current_user.project_id
+
+    if not project_id:
+        return jsonify({'error': 'You are not assigned to a project. Ask an admin to assign you.'}), 400
+
+    proj, _ = q(f"SELECT id FROM projects WHERE id = {PH}", (project_id,))
+    if not proj:
+        return jsonify({'error': 'Project not found'}), 400
+
     eid = uuid.uuid4().hex
-    q(EXPENSE_INSERT_SQL, (eid, current_user.id, fields['description'], fields['amount'],
+    q(EXPENSE_INSERT_SQL, (eid, current_user.id, project_id, fields['description'], fields['amount'],
                            fields['category'], fields['date'], fields['paid_by'],
                            fields['status'], fields['notes']))
-    return jsonify({'id': eid}), 201
+    return jsonify({'id': eid, 'project_id': project_id}), 201
 
 
 @app.route('/api/expenses/<eid>', methods=['PUT'])
@@ -435,7 +590,10 @@ def expenses_update(eid):
     if current_user.is_admin:
         sql, params = EXPENSE_UPDATE_SQL, base_params + (eid,)
     else:
-        sql, params = EXPENSE_UPDATE_SQL + SCOPE_CLAUSE, base_params + (eid, current_user.id)
+        if not current_user.project_id:
+            return jsonify({'error': 'Not found'}), 404
+        sql = EXPENSE_UPDATE_SQL + WORKER_SCOPE
+        params = base_params + (eid, current_user.id, current_user.project_id)
     _, rc = q(sql, params)
     if rc == 0:
         return jsonify({'error': 'Not found'}), 404
@@ -448,7 +606,10 @@ def expenses_delete(eid):
     if current_user.is_admin:
         sql, params = EXPENSE_DELETE_SQL, (eid,)
     else:
-        sql, params = EXPENSE_DELETE_SQL + SCOPE_CLAUSE, (eid, current_user.id)
+        if not current_user.project_id:
+            return jsonify({'error': 'Not found'}), 404
+        sql = EXPENSE_DELETE_SQL + WORKER_SCOPE
+        params = (eid, current_user.id, current_user.project_id)
     _, rc = q(sql, params)
     if rc == 0:
         return jsonify({'error': 'Not found'}), 404
@@ -460,8 +621,9 @@ def expenses_delete(eid):
 def expenses_clear():
     if current_user.is_admin:
         q("DELETE FROM expenses")
-    else:
-        q(f"DELETE FROM expenses WHERE user_id = {PH}", (current_user.id,))
+    elif current_user.project_id:
+        q(f"DELETE FROM expenses WHERE user_id = {PH} AND project_id = {PH}",
+          (current_user.id, current_user.project_id))
     return '', 204
 
 

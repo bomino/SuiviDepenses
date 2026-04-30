@@ -584,6 +584,38 @@
   .admin-user-row button:hover { color: var(--text); border-color: var(--text); }
   .admin-user-row button.danger { border-color: rgba(239,68,68,.4); color: var(--red); }
   .admin-user-row button.danger:hover { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+  .admin-user-row select {
+    padding: 4px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: .7rem;
+    font-family: inherit;
+    max-width: 140px;
+  }
+
+  .admin-section-title {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--sub);
+    font-weight: 700;
+    margin: 18px 0 10px;
+  }
+
+  /* worker empty-state when not assigned to a project */
+  .no-project-banner {
+    background: rgba(245,158,11,.12);
+    border: 1px solid rgba(245,158,11,.4);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    color: var(--text);
+    font-size: .9rem;
+    line-height: 1.5;
+  }
+  .no-project-banner strong { color: var(--accent); display: block; margin-bottom: 4px; }
 
   @media (max-width: 640px) {
     .app-header { flex-direction: column; }
@@ -640,6 +672,11 @@
       <div class="label" id="statPendingLabel">Pending</div>
       <div class="value" id="statPending">0</div>
     </div>
+  </div>
+
+  <div class="no-project-banner hidden" id="noProjectBanner">
+    <strong id="noProjectTitle">No project assigned</strong>
+    <span id="noProjectMsg">Ask an admin to assign you to a project before you can add expenses.</span>
   </div>
 
   <div class="section">
@@ -738,6 +775,14 @@
       <h2 id="adminTitle">Manage Users</h2>
       <button type="button" class="modal-close" onclick="closeAdmin()" aria-label="Close">&times;</button>
     </div>
+    <div class="admin-section-title" id="adminProjectsTitle">Projects</div>
+    <form class="admin-add-form" onsubmit="adminAddProject(event)" style="grid-template-columns:1fr">
+      <input type="text" id="newProjectName" autocomplete="off" placeholder="Project name" required>
+      <button type="submit" class="admin-create-btn" id="adminAddProjectBtn">Add Project</button>
+    </form>
+    <div class="admin-user-list" id="adminProjectList"></div>
+
+    <div class="admin-section-title" id="adminUsersTitle">Users</div>
     <form class="admin-add-form" onsubmit="adminAddUser(event)">
       <input type="text" id="newUsername" autocomplete="off" placeholder="Username" required>
       <input type="password" id="newPassword" autocomplete="new-password" placeholder="Password (min 6)" required minlength="6">
@@ -884,7 +929,7 @@ function detectBackend() {
         storageMode = 'api';
         updateDbIndicator();
         r.json().then(function(d) {
-          currentUser = { username: d.username, is_admin: !!d.is_admin };
+          currentUser = { username: d.username, is_admin: !!d.is_admin, project_id: d.project_id || null, project_name: d.project_name || null };
           updateUserUI();
           loadFromApi();
         });
@@ -920,7 +965,7 @@ function doLogin(ev) {
     return r.json().then(function(d) { return { ok: r.ok, body: d }; });
   }).then(function(res) {
     if (res.ok) {
-      currentUser = { username: res.body.username, is_admin: !!res.body.is_admin };
+      currentUser = { username: res.body.username, is_admin: !!res.body.is_admin, project_id: res.body.project_id || null, project_name: res.body.project_name || null };
       updateUserUI();
       hideLogin();
       loadFromApi();
@@ -949,7 +994,8 @@ function openAdmin() {
   var err = document.getElementById('adminError');
   if (err) err.textContent = '';
   if (ov) ov.classList.remove('hidden');
-  refreshAdminUserList();
+  // refreshAdminProjectList loads projects then chains into refreshAdminUserList
+  refreshAdminProjectList();
 }
 
 function closeAdmin() {
@@ -983,9 +1029,15 @@ function refreshAdminUserList() {
         var toggleLabel = u.is_admin ? t('adminMakeWorker') : t('adminMakeAdmin');
         var deleteDisabled = isMe ? 'disabled' : '';
         var demoteDisabled = (isMe && u.is_admin) ? 'disabled' : '';
+        var projectOptions = '<option value="">' + t('adminProjectNone') + '</option>' +
+          allProjects.map(function(p) {
+            var sel = (u.project_id === p.id) ? ' selected' : '';
+            return '<option value="' + escAttr(p.id) + '"' + sel + '>' + esc(p.name) + '</option>';
+          }).join('');
         return '<div class="admin-user-row">' +
           '<span class="name">' + esc(u.username) + '</span>' +
           '<span class="role-tag ' + roleClass + '">' + roleLabel + '</span>' +
+          '<select onchange="adminAssignProject(\'' + escAttr(u.id) + '\', this.value)" title="' + t('adminProjectAssign') + '">' + projectOptions + '</select>' +
           '<div class="actions">' +
             '<button type="button" onclick="adminResetPassword(\'' + escAttr(u.id) + '\',\'' + escAttr(u.username) + '\')">' + t('adminResetPwd') + '</button>' +
             '<button type="button" ' + demoteDisabled + ' onclick="adminToggleAdmin(\'' + escAttr(u.id) + '\',' + (!u.is_admin) + ')">' + toggleLabel + '</button>' +
@@ -1070,6 +1122,116 @@ function adminToggleAdmin(uid, makeAdmin) {
     if (r.status === 204) {
       refreshAdminUserList();
       toast(makeAdmin ? t('adminPromoted') : t('adminDemoted'));
+    } else {
+      r.json().then(function(d) { setAdminError(d.error || t('adminUpdateFailed')); });
+    }
+  }).catch(function() { setAdminError(t('adminUpdateFailed')); });
+}
+
+/* ─────────── admin: projects ─────────── */
+function refreshAdminProjectList() {
+  fetch('/api/projects')
+    .then(function(r) { if (!r.ok) throw new Error('list'); return r.json(); })
+    .then(function(projs) {
+      allProjects = projs;
+      var list = document.getElementById('adminProjectList');
+      if (!list) return;
+      if (projs.length === 0) {
+        list.innerHTML = '<div class="admin-user-row"><span class="name" style="color:var(--sub)">' + t('adminNoProjects') + '</span></div>';
+      } else {
+        list.innerHTML = projs.map(function(p) {
+          return '<div class="admin-user-row">' +
+            '<span class="name">' + esc(p.name) + '</span>' +
+            '<div class="actions">' +
+              '<button type="button" onclick="adminRenameProject(\'' + escAttr(p.id) + '\',\'' + escAttr(p.name) + '\')">' + t('adminRenameProject') + '</button>' +
+              '<button type="button" class="danger" onclick="adminDeleteProject(\'' + escAttr(p.id) + '\',\'' + escAttr(p.name) + '\')">' + t('adminDelete') + '</button>' +
+            '</div>' +
+            '</div>';
+        }).join('');
+      }
+      // user list rows depend on the project options, so re-render them too
+      refreshAdminUserList();
+    })
+    .catch(function() { setAdminError(t('adminLoadFailed')); });
+}
+
+function adminAddProject(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  setAdminError('');
+  var name = (document.getElementById('newProjectName').value || '').trim();
+  if (!name) { setAdminError(t('adminProjectNameRequired')); return; }
+  var btn = document.getElementById('adminAddProjectBtn');
+  if (btn) btn.disabled = true;
+  fetch('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name })
+  }).then(function(r) {
+    if (btn) btn.disabled = false;
+    return r.json().then(function(d) { return { ok: r.ok, body: d }; });
+  }).then(function(res) {
+    if (res.ok) {
+      document.getElementById('newProjectName').value = '';
+      refreshAdminProjectList();
+      toast(t('adminProjectCreated'));
+    } else {
+      setAdminError(res.body.error || t('adminProjectCreateFailed'));
+    }
+  }).catch(function() {
+    if (btn) btn.disabled = false;
+    setAdminError(t('adminProjectCreateFailed'));
+  });
+}
+
+function adminRenameProject(pid, currentName) {
+  var newName = prompt(t('promptProjectName'), currentName);
+  if (newName == null) return;
+  newName = newName.trim();
+  if (!newName) { setAdminError(t('adminProjectNameRequired')); return; }
+  fetch('/api/projects/' + encodeURIComponent(pid), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName })
+  }).then(function(r) {
+    return r.json().then(function(d) { return { ok: r.ok, body: d }; });
+  }).then(function(res) {
+    if (res.ok) {
+      refreshAdminProjectList();
+      // if we just renamed the current user's own project, update the header too
+      if (currentUser && currentUser.project_id === pid) {
+        currentUser.project_name = newName;
+        projectName = newName;
+        document.getElementById('projectName').firstChild.textContent = projectName;
+      }
+      toast(t('adminProjectRenamed'));
+    } else {
+      setAdminError(res.body.error || t('adminProjectUpdateFailed'));
+    }
+  }).catch(function() { setAdminError(t('adminProjectUpdateFailed')); });
+}
+
+function adminDeleteProject(pid, name) {
+  if (!confirm(t('confirmDeleteProject').replace('{name}', name))) return;
+  fetch('/api/projects/' + encodeURIComponent(pid), { method: 'DELETE' })
+    .then(function(r) {
+      if (r.status === 204) {
+        refreshAdminProjectList();
+        toast(t('adminProjectDeleted'));
+      } else {
+        r.json().then(function(d) { setAdminError(d.error || t('adminProjectDeleteFailed')); });
+      }
+    }).catch(function() { setAdminError(t('adminProjectDeleteFailed')); });
+}
+
+function adminAssignProject(uid, projectId) {
+  fetch('/api/users/' + encodeURIComponent(uid) + '/project', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId || null })
+  }).then(function(r) {
+    if (r.status === 204) {
+      refreshAdminUserList();
+      toast(t('adminProjectAssigned'));
     } else {
       r.json().then(function(d) { setAdminError(d.error || t('adminUpdateFailed')); });
     }
@@ -1194,7 +1356,27 @@ var dict = {
     adminRoleTagAdmin: "Admin",
     adminRoleTagUser: "Worker",
     confirmDeleteUser: "Delete user '{user}'? Their expenses will be removed too.",
-    promptNewPassword: "New password for {user}:"
+    promptNewPassword: "New password for {user}:",
+    adminProjectsTitle: "Projects",
+    adminUsersTitle: "Users",
+    newProjectName: "Project name",
+    adminAddProjectBtn: "Add Project",
+    adminProjectCreated: "Project added",
+    adminProjectCreateFailed: "Could not add project",
+    adminProjectNameRequired: "Project name required",
+    adminRenameProject: "Rename",
+    adminProjectRenamed: "Project renamed",
+    adminProjectUpdateFailed: "Could not rename project",
+    adminProjectDeleted: "Project deleted",
+    adminProjectDeleteFailed: "Could not delete project",
+    adminProjectAssigned: "Project assignment updated",
+    adminProjectNone: "— No project —",
+    adminProjectAssign: "Assign to project",
+    adminNoProjects: "No projects yet — add one above",
+    promptProjectName: "New name:",
+    confirmDeleteProject: "Delete project '{name}'? All its expenses will be removed too.",
+    noProjectTitle: "No project assigned",
+    noProjectMsg: "Ask an admin to assign you to a project before you can add expenses."
   },
   fr: {
     headerTitle: "Suivi des D\u00E9penses",
@@ -1295,7 +1477,27 @@ var dict = {
     adminRoleTagAdmin: "Admin",
     adminRoleTagUser: "Ouvrier",
     confirmDeleteUser: "Supprimer l'utilisateur « {user} » ? Ses dépenses seront aussi supprimées.",
-    promptNewPassword: "Nouveau mot de passe pour {user} :"
+    promptNewPassword: "Nouveau mot de passe pour {user} :",
+    adminProjectsTitle: "Projets",
+    adminUsersTitle: "Utilisateurs",
+    newProjectName: "Nom du projet",
+    adminAddProjectBtn: "Ajouter un projet",
+    adminProjectCreated: "Projet ajouté",
+    adminProjectCreateFailed: "Échec de l'ajout du projet",
+    adminProjectNameRequired: "Nom du projet requis",
+    adminRenameProject: "Renommer",
+    adminProjectRenamed: "Projet renommé",
+    adminProjectUpdateFailed: "Échec du renommage",
+    adminProjectDeleted: "Projet supprimé",
+    adminProjectDeleteFailed: "Échec de la suppression du projet",
+    adminProjectAssigned: "Affectation mise à jour",
+    adminProjectNone: "— Aucun projet —",
+    adminProjectAssign: "Affecter à un projet",
+    adminNoProjects: "Aucun projet — ajoutez-en un ci-dessus",
+    promptProjectName: "Nouveau nom :",
+    confirmDeleteProject: "Supprimer le projet « {name} » ? Toutes ses dépenses seront aussi supprimées.",
+    noProjectTitle: "Aucun projet affecté",
+    noProjectMsg: "Demandez à un admin de vous affecter à un projet avant d'ajouter des dépenses."
   }
 };
 
@@ -1380,13 +1582,22 @@ function applyLang() {
   /* admin panel */
   assignText('adminBtn', d.adminBtn);
   assignText('adminTitle', d.adminTitle);
+  assignText('adminProjectsTitle', d.adminProjectsTitle);
+  assignText('adminUsersTitle', d.adminUsersTitle);
   assignText('newAdminLabel', d.newAdminLabel);
   assignText('adminCreateBtn', d.adminCreateBtn);
+  assignText('adminAddProjectBtn', d.adminAddProjectBtn);
   var nu = document.getElementById('newUsername'); if (nu) nu.placeholder = d.newUsername;
   var np = document.getElementById('newPassword'); if (np) np.placeholder = d.newPassword;
-  // re-render the user list if the admin panel is open, so role labels follow the language
+  var npn = document.getElementById('newProjectName'); if (npn) npn.placeholder = d.newProjectName;
+
+  /* no-project banner for unassigned workers */
+  assignText('noProjectTitle', d.noProjectTitle);
+  assignText('noProjectMsg', d.noProjectMsg);
+
+  // re-render lists if the admin panel is open, so role labels and project options follow the language
   var ov = document.getElementById('adminOverlay');
-  if (ov && !ov.classList.contains('hidden')) refreshAdminUserList();
+  if (ov && !ov.classList.contains('hidden')) refreshAdminProjectList();
 
   /* dropdowns */
   populateSelect('category', catOptions(), keepVal('category'));
@@ -1427,6 +1638,7 @@ function displayStatus(v) { var opts = statusOptions(); var m = opts.find(functi
 /* ─────────── data layer ─────────── */
 var expenses = [];
 var projectName = 'My Project';
+var allProjects = []; /* admin's view of all projects, refreshed on admin panel open and after CRUD */
 
 function loadFromLocal() {
   try {
@@ -1448,17 +1660,34 @@ function loadFromApi() {
     fetch('/api/project').then(function(r) { return r.json(); })
   ]).then(function(results) {
     expenses = results[0] || [];
-    projectName = results[1].name || 'My Project';
+    projectName = results[1].name || (currentUser && currentUser.is_admin ? 'No project' : 'No project assigned');
     try { currLang = localStorage.getItem('expense-tracker-lang') || 'en'; } catch(e) { currLang = 'en'; }
     document.getElementById('projectName').firstChild.textContent = projectName;
     document.getElementById('date').value = today();
     applyLang();
+    updateNoProjectBanner();
     render();
   }).catch(function() {
     storageMode = 'local';
     updateDbIndicator();
     loadFromLocal();
   });
+}
+
+function updateNoProjectBanner() {
+  // Workers without a project assignment can't add expenses; surface that clearly.
+  var banner = document.getElementById('noProjectBanner');
+  var formTitle = document.getElementById('formTitle');
+  var formSection = formTitle ? formTitle.closest('.section') : null;
+  var noProj = currentUser && !currentUser.is_admin && !currentUser.project_id;
+  if (banner) {
+    if (noProj) banner.classList.remove('hidden');
+    else banner.classList.add('hidden');
+  }
+  if (formSection) {
+    if (noProj) formSection.classList.add('hidden');
+    else formSection.classList.remove('hidden');
+  }
 }
 
 function persist() {
@@ -1518,6 +1747,9 @@ function clearAll() {
 }
 
 function renameProject() {
+  // Only admins can rename in API mode; localStorage mode is single-user so always allowed.
+  if (storageMode === 'api' && (!currentUser || !currentUser.is_admin)) return;
+  if (storageMode === 'api' && !currentUser.project_id) return;
   var name = prompt(t('promptRename'), projectName);
   if (name && name.trim()) {
     projectName = name.trim();
