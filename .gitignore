@@ -1,0 +1,16 @@
+# database (runtime data)
+expenses.db
+expenses.db-shm
+expenses.db-wal
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
