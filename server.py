@@ -10,6 +10,7 @@ HTML_FILE = 'index.html'
 ALLOWED_CATEGORIES = {'Materials', 'Labor', 'Equipment', 'Permits', 'Subcontractors', 'Transport', 'Utilities', 'Misc'}
 ALLOWED_STATUSES = {'Paid', 'Pending', 'Unpaid'}
 SERVABLE_FILES = {'index.html', 'manifest.json', 'sw.js'}
+SERVABLE_ICON_PREFIX = 'icons/'
 
 app = Flask(__name__)
 
@@ -74,9 +75,11 @@ def index():
 
 @app.route('/<path:p>')
 def static_file(p):
-    if p not in SERVABLE_FILES:
-        abort(404)
-    return send_from_directory(BASE_DIR, p)
+    if p in SERVABLE_FILES:
+        return send_from_directory(BASE_DIR, p)
+    if p.startswith(SERVABLE_ICON_PREFIX) and '..' not in p and p.endswith('.png'):
+        return send_from_directory(BASE_DIR, p)
+    abort(404)
 
 # ─── project ───
 @app.route('/api/project', methods=['GET'])

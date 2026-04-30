@@ -6,6 +6,12 @@
 <title id="pageTitle">Expense Tracker</title>
 <meta name="theme-color" content="#f59e0b">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Expenses">
 <style>
   :root {
     --bg: #0f172a;
@@ -513,6 +519,13 @@
     <button class="btn btn-ghost" onclick="document.getElementById('installBanner').classList.remove('show')" id="dismissBtn" style="font-size:.75rem;padding:6px 14px">Dismiss</button>
   </div>
 </div>
+<div class="install-banner" id="updateBanner">
+  <h4 id="updateMsg">A new version is available</h4>
+  <div class="btns">
+    <button class="btn btn-primary" onclick="applyUpdate()" id="refreshBtn" style="font-size:.75rem;padding:6px 14px">Refresh</button>
+    <button class="btn btn-ghost" onclick="document.getElementById('updateBanner').classList.remove('show')" id="updateDismissBtn" style="font-size:.75rem;padding:6px 14px">Later</button>
+  </div>
+</div>
 
 <script>
 /* ─────────── PWA ─────────── */
@@ -525,9 +538,46 @@ window.addEventListener('beforeinstallprompt', function(e) {
   if (ban) { setTimeout(function() { ban.classList.add('show'); }, 3000); }
 });
 
+var pendingRegistration = null;
+var reloadingForUpdate = false;
+
+function showUpdateBanner() {
+  var ban = document.getElementById('updateBanner');
+  if (ban) ban.classList.add('show');
+}
+
+function applyUpdate() {
+  if (pendingRegistration && pendingRegistration.waiting) {
+    pendingRegistration.waiting.postMessage('SKIP_WAITING');
+  } else {
+    window.location.reload();
+  }
+}
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
-    navigator.serviceWorker.register('sw.js').catch(function() {});
+    navigator.serviceWorker.register('sw.js').then(function(reg) {
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        pendingRegistration = reg;
+        showUpdateBanner();
+      }
+      reg.addEventListener('updatefound', function() {
+        var nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', function() {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            pendingRegistration = reg;
+            showUpdateBanner();
+          }
+        });
+      });
+    }).catch(function() {});
+
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (reloadingForUpdate) return;
+      reloadingForUpdate = true;
+      window.location.reload();
+    });
   });
 }
 
@@ -642,7 +692,10 @@ var dict = {
     deleteTitle: "Delete",
     installMsg: "Install for quick access",
     installBtn: "Install",
-    dismissBtn: "Dismiss"
+    dismissBtn: "Dismiss",
+    updateMsg: "A new version is available",
+    refreshBtn: "Refresh",
+    updateDismissBtn: "Later"
   },
   fr: {
     headerTitle: "Suivi des D\u00E9penses",
@@ -706,7 +759,10 @@ var dict = {
     deleteTitle: "Supprimer",
     installMsg: "Installer pour un acc\u00E8s rapide",
     installBtn: "Installer",
-    dismissBtn: "Ignorer"
+    dismissBtn: "Ignorer",
+    updateMsg: "Nouvelle version disponible",
+    refreshBtn: "Actualiser",
+    updateDismissBtn: "Plus tard"
   }
 };
 
@@ -774,6 +830,11 @@ function applyLang() {
   assignText('installMsg', d.installMsg);
   assignText('installBtn', d.installBtn);
   assignText('dismissBtn', d.dismissBtn);
+
+  /* update banner */
+  assignText('updateMsg', d.updateMsg);
+  assignText('refreshBtn', d.refreshBtn);
+  assignText('updateDismissBtn', d.updateDismissBtn);
 
   /* dropdowns */
   populateSelect('category', catOptions(), keepVal('category'));
