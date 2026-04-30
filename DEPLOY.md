@@ -254,45 +254,53 @@ This creates a new commit that undoes the bad one and triggers a fresh deploy. P
 | `OperationalError: too many connections` | Pool size × workers > Postgres limit | Lower `DB_POOL_MAX` env var (default 5) or reduce gunicorn workers in `Procfile` (`-w 1`). Hobby Postgres has ~20 connection cap. |
 | Login screen never appears after auth deploy | Service worker is serving the pre-auth HTML from cache | Hard-reload once (Ctrl/Cmd+Shift+R). Or DevTools → Application → Storage → Clear site data → reload. The cache version was bumped to `v4` to force this on next visit. |
 | Login form shows "Invalid credentials" with the bootstrap user | Trailing whitespace in `INITIAL_PASSWORD` (paste artifact), or the user was created with a different password than you remember | `railway run python scripts/add_user.py <username> <new_password>` — overrides the password in place. Bootstrap is one-shot; only `add_user.py` resets passwords after the first user exists. |
+| Locked out — every admin demoted, or last admin deleted at the DB level | Self-protection in the UI prevents this normally, but direct SQL or CLI edits could still strand the org | `railway run python scripts/add_user.py <user> <pass> --admin` — creates a new admin (or promotes an existing user) bypassing the in-app panel. |
 
 ---
 
 ## Managing users
 
-Auth is **Flask-Login + bcrypt** (Tier 2) — session cookies, server-side password hashing, no third-party identity provider. The first user is bootstrapped via `INITIAL_USERNAME` / `INITIAL_PASSWORD` (Step 2.5). For everyone after that:
+Auth is **Flask-Login + bcrypt** (Tier 2) — session cookies, server-side password hashing, no third-party identity provider. The first user is bootstrapped via `INITIAL_USERNAME` / `INITIAL_PASSWORD` (Step 2.5) and **automatically receives admin rights**.
 
-### Add a user
+There are two ways to manage users after that — the in-app panel (preferred) and the CLI fallback.
+
+### Roles
+
+- **Admin** — sees every expense across the whole crew, can add/delete/rename users, can rename the project, can edit or delete anyone's expenses.
+- **Worker** (default) — sees only their own expenses. Can add, edit, delete their own rows. Cannot see other users' data and cannot manage users.
+
+The bootstrap user is admin; everyone they create is a worker by default unless the admin checks the "Make this user an admin" box.
+
+### In-app panel (preferred)
+
+After the bootstrap admin logs in, a **Manage Users** button appears in the header (visible only to admins). Click it:
+
+- **Add user** — fill the form (username, password ≥6 chars, optional admin checkbox) → click *Add User*.
+- **Reset password** — click the *Reset password* button next to a user → enter the new password in the prompt.
+- **Promote / demote** — *Make admin* / *Make worker* button toggles their role.
+- **Delete user** — red *Delete* button removes the user and **all their expenses** (cascade).
+
+Self-protection: you cannot delete yourself or remove your own admin role from the panel. To recover from accidental lockout, see the CLI fallback below.
+
+### CLI fallback (`scripts/add_user.py`)
+
+Useful when:
+- You haven't logged in yet (first deploy without `INITIAL_USERNAME`/`INITIAL_PASSWORD`).
+- You demoted/locked yourself out of the panel and need to re-promote.
+- You're scripting bulk onboarding.
 
 ```bash
 # Locally (SQLite)
 python scripts/add_user.py supervisor sitepass99
+python scripts/add_user.py supervisor sitepass99 --admin   # create or update as admin
 
-# On Railway (Postgres)
+# On Railway (Postgres) — link to the WEB service first:
+railway link    # Workspace → Project → Environment → web (NOT Postgres)
 railway run python scripts/add_user.py supervisor sitepass99
+railway run python scripts/add_user.py supervisor newpass99 --admin
 ```
 
-The script also **updates the password** if the username already exists — useful for resets:
-
-```bash
-railway run python scripts/add_user.py supervisor newpass99
-# → "Updated password for existing user 'supervisor'"
-```
-
-Minimum password length: 6 characters (enforced by the script). Bcrypt cost is the library default (12 rounds).
-
-### List users
-
-```bash
-railway run python -c "import server; rows,_=server.q('SELECT username FROM users'); print([r['username'] for r in rows])"
-```
-
-### Delete a user
-
-```bash
-railway run python -c "import server; server.q('DELETE FROM users WHERE username = ' + server.PH, ('supervisor',))"
-```
-
-(That user's session cookies become useless on next request — `user_loader` returns `None` and Flask-Login signs them out.)
+The script doubles as a password reset — if the username exists, it updates the password (and, with `--admin`, promotes them).
 
 ### Force everyone to re-login
 

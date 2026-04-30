@@ -455,6 +455,135 @@
     color: var(--text);
     border: 1px solid var(--border);
   }
+  .user-pill.admin {
+    background: rgba(245,158,11,.15);
+    color: var(--accent);
+    border-color: rgba(245,158,11,.4);
+  }
+
+  /* admin overlay (clone of login-overlay; wider card with user list) */
+  .admin-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  }
+  .admin-card .admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 18px;
+  }
+  .admin-card h2 {
+    font-size: 1.15rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .admin-card .modal-close {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--sub);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    font-family: inherit;
+  }
+  .admin-card .modal-close:hover { color: var(--text); border-color: var(--text); }
+  .admin-add-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 14px;
+    background: var(--surface2);
+    border-radius: var(--radius-sm);
+    margin-bottom: 18px;
+  }
+  .admin-add-form input[type="text"],
+  .admin-add-form input[type="password"] {
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: .85rem;
+    font-family: inherit;
+  }
+  .admin-add-form input:focus { outline: none; border-color: var(--accent); }
+  .admin-add-form .admin-checkbox-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--sub);
+    font-size: .8rem;
+  }
+  .admin-add-form .admin-checkbox-row input { accent-color: var(--accent); }
+  .admin-add-form .admin-create-btn {
+    grid-column: 1 / -1;
+    padding: 8px;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: .85rem;
+  }
+  .admin-add-form .admin-create-btn:hover { filter: brightness(1.1); }
+  .admin-add-form .admin-create-btn:disabled { opacity: .5; cursor: wait; }
+
+  .admin-user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .admin-user-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: var(--radius-sm);
+    flex-wrap: wrap;
+  }
+  .admin-user-row .name { font-weight: 600; color: var(--text); flex: 1; min-width: 0; word-break: break-word; }
+  .admin-user-row .role-tag {
+    font-size: .65rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .admin-user-row .role-admin { background: rgba(245,158,11,.15); color: var(--accent); }
+  .admin-user-row .role-user { background: rgba(148,163,184,.15); color: var(--sub); }
+  .admin-user-row .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .admin-user-row button {
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: .7rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--sub);
+  }
+  .admin-user-row button:hover { color: var(--text); border-color: var(--text); }
+  .admin-user-row button.danger { border-color: rgba(239,68,68,.4); color: var(--red); }
+  .admin-user-row button.danger:hover { background: var(--red-bg); color: var(--red); border-color: var(--red); }
 
   @media (max-width: 640px) {
     .app-header { flex-direction: column; }
@@ -484,6 +613,7 @@
       <button class="btn-lang" onclick="toggleLang()" id="langBtn" title="Changer de langue / Switch language">FR</button>
       <button class="btn btn-ghost" onclick="exportCSV()" id="exportBtn">Export</button>
       <button class="btn btn-danger" onclick="clearAll()" id="clearBtn">Clear</button>
+      <button class="btn btn-ghost hidden" onclick="openAdmin()" id="adminBtn">Manage Users</button>
       <span class="user-pill hidden" id="userPill"></span>
       <button class="btn btn-ghost hidden" onclick="doLogout()" id="logoutBtn">Logout</button>
     </div>
@@ -602,6 +732,26 @@
   </form>
 </div>
 
+<div class="login-overlay hidden" id="adminOverlay">
+  <div class="admin-card">
+    <div class="admin-header">
+      <h2 id="adminTitle">Manage Users</h2>
+      <button type="button" class="modal-close" onclick="closeAdmin()" aria-label="Close">&times;</button>
+    </div>
+    <form class="admin-add-form" onsubmit="adminAddUser(event)">
+      <input type="text" id="newUsername" autocomplete="off" placeholder="Username" required>
+      <input type="password" id="newPassword" autocomplete="new-password" placeholder="Password (min 6)" required minlength="6">
+      <label class="admin-checkbox-row">
+        <input type="checkbox" id="newAdmin">
+        <span id="newAdminLabel">Make this user an admin</span>
+      </label>
+      <button type="submit" class="admin-create-btn" id="adminCreateBtn">Add User</button>
+    </form>
+    <div class="admin-user-list" id="adminUserList"></div>
+    <div class="login-error" id="adminError"></div>
+  </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 <div class="install-banner" id="installBanner">
   <h4 id="installMsg">Install this app for quick access</h4>
@@ -681,7 +831,7 @@ function installPWA() {
 
 /* ─────────── storage mode detection + auth ─────────── */
 var storageMode = 'local'; /* 'local' | 'api' */
-var currentUser = null;
+var currentUser = null; /* {username, is_admin} | null */
 
 function showLogin() {
   var ov = document.getElementById('loginOverlay');
@@ -703,13 +853,23 @@ function hideLogin() {
 
 function updateUserUI() {
   var pill = document.getElementById('userPill');
-  var btn = document.getElementById('logoutBtn');
+  var logout = document.getElementById('logoutBtn');
+  var adminBtn = document.getElementById('adminBtn');
   if (currentUser) {
-    if (pill) { pill.textContent = currentUser; pill.classList.remove('hidden'); }
-    if (btn) btn.classList.remove('hidden');
+    if (pill) {
+      pill.textContent = currentUser.username;
+      pill.classList.remove('hidden');
+      if (currentUser.is_admin) pill.classList.add('admin'); else pill.classList.remove('admin');
+    }
+    if (logout) logout.classList.remove('hidden');
+    if (adminBtn) {
+      if (currentUser.is_admin) adminBtn.classList.remove('hidden');
+      else adminBtn.classList.add('hidden');
+    }
   } else {
-    if (pill) pill.classList.add('hidden');
-    if (btn) btn.classList.add('hidden');
+    if (pill) { pill.classList.add('hidden'); pill.classList.remove('admin'); }
+    if (logout) logout.classList.add('hidden');
+    if (adminBtn) adminBtn.classList.add('hidden');
   }
 }
 
@@ -724,7 +884,7 @@ function detectBackend() {
         storageMode = 'api';
         updateDbIndicator();
         r.json().then(function(d) {
-          currentUser = d.username;
+          currentUser = { username: d.username, is_admin: !!d.is_admin };
           updateUserUI();
           loadFromApi();
         });
@@ -760,7 +920,7 @@ function doLogin(ev) {
     return r.json().then(function(d) { return { ok: r.ok, body: d }; });
   }).then(function(res) {
     if (res.ok) {
-      currentUser = res.body.username;
+      currentUser = { username: res.body.username, is_admin: !!res.body.is_admin };
       updateUserUI();
       hideLogin();
       loadFromApi();
@@ -781,6 +941,139 @@ function doLogout() {
     render();
     showLogin();
   });
+}
+
+/* ─────────── admin panel ─────────── */
+function openAdmin() {
+  var ov = document.getElementById('adminOverlay');
+  var err = document.getElementById('adminError');
+  if (err) err.textContent = '';
+  if (ov) ov.classList.remove('hidden');
+  refreshAdminUserList();
+}
+
+function closeAdmin() {
+  var ov = document.getElementById('adminOverlay');
+  if (ov) ov.classList.add('hidden');
+  var err = document.getElementById('adminError');
+  if (err) err.textContent = '';
+  var f = document.getElementById('newPassword'); if (f) f.value = '';
+  var u = document.getElementById('newUsername'); if (u) u.value = '';
+  var a = document.getElementById('newAdmin'); if (a) a.checked = false;
+}
+
+function setAdminError(msg) {
+  var err = document.getElementById('adminError');
+  if (err) err.textContent = msg || '';
+}
+
+function refreshAdminUserList() {
+  fetch('/api/users')
+    .then(function(r) {
+      if (!r.ok) throw new Error('list');
+      return r.json();
+    })
+    .then(function(users) {
+      var list = document.getElementById('adminUserList');
+      if (!list) return;
+      list.innerHTML = users.map(function(u) {
+        var isMe = currentUser && u.username === currentUser.username;
+        var roleClass = u.is_admin ? 'role-admin' : 'role-user';
+        var roleLabel = u.is_admin ? t('adminRoleTagAdmin') : t('adminRoleTagUser');
+        var toggleLabel = u.is_admin ? t('adminMakeWorker') : t('adminMakeAdmin');
+        var deleteDisabled = isMe ? 'disabled' : '';
+        var demoteDisabled = (isMe && u.is_admin) ? 'disabled' : '';
+        return '<div class="admin-user-row">' +
+          '<span class="name">' + esc(u.username) + '</span>' +
+          '<span class="role-tag ' + roleClass + '">' + roleLabel + '</span>' +
+          '<div class="actions">' +
+            '<button type="button" onclick="adminResetPassword(\'' + escAttr(u.id) + '\',\'' + escAttr(u.username) + '\')">' + t('adminResetPwd') + '</button>' +
+            '<button type="button" ' + demoteDisabled + ' onclick="adminToggleAdmin(\'' + escAttr(u.id) + '\',' + (!u.is_admin) + ')">' + toggleLabel + '</button>' +
+            '<button type="button" class="danger" ' + deleteDisabled + ' onclick="adminDeleteUser(\'' + escAttr(u.id) + '\',\'' + escAttr(u.username) + '\')">' + t('adminDelete') + '</button>' +
+          '</div>' +
+          '</div>';
+      }).join('');
+    })
+    .catch(function() { setAdminError(t('adminLoadFailed')); });
+}
+
+function adminAddUser(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  setAdminError('');
+  var u = (document.getElementById('newUsername').value || '').trim();
+  var p = document.getElementById('newPassword').value || '';
+  var isAdmin = !!document.getElementById('newAdmin').checked;
+  var btn = document.getElementById('adminCreateBtn');
+  if (!u || p.length < 6) { setAdminError(t('adminMissing')); return; }
+  if (btn) btn.disabled = true;
+
+  fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: u, password: p, is_admin: isAdmin })
+  }).then(function(r) {
+    if (btn) btn.disabled = false;
+    return r.json().then(function(d) { return { ok: r.ok, body: d }; });
+  }).then(function(res) {
+    if (res.ok) {
+      document.getElementById('newUsername').value = '';
+      document.getElementById('newPassword').value = '';
+      document.getElementById('newAdmin').checked = false;
+      refreshAdminUserList();
+      toast(t('adminCreated'));
+    } else {
+      setAdminError(res.body.error || t('adminCreateFailed'));
+    }
+  }).catch(function() {
+    if (btn) btn.disabled = false;
+    setAdminError(t('adminCreateFailed'));
+  });
+}
+
+function adminDeleteUser(uid, username) {
+  if (!confirm(t('confirmDeleteUser').replace('{user}', username))) return;
+  fetch('/api/users/' + encodeURIComponent(uid), { method: 'DELETE' })
+    .then(function(r) {
+      if (r.status === 204) {
+        refreshAdminUserList();
+        toast(t('adminDeleted'));
+      } else {
+        r.json().then(function(d) { setAdminError(d.error || t('adminDeleteFailed')); });
+      }
+    }).catch(function() { setAdminError(t('adminDeleteFailed')); });
+}
+
+function adminResetPassword(uid, username) {
+  var pw = prompt(t('promptNewPassword').replace('{user}', username));
+  if (pw == null) return;
+  pw = pw.trim();
+  if (pw.length < 6) { setAdminError(t('adminPwdTooShort')); return; }
+  fetch('/api/users/' + encodeURIComponent(uid) + '/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw })
+  }).then(function(r) {
+    if (r.status === 204) {
+      toast(t('adminPwdReset'));
+    } else {
+      r.json().then(function(d) { setAdminError(d.error || t('adminPwdResetFailed')); });
+    }
+  }).catch(function() { setAdminError(t('adminPwdResetFailed')); });
+}
+
+function adminToggleAdmin(uid, makeAdmin) {
+  fetch('/api/users/' + encodeURIComponent(uid) + '/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_admin: !!makeAdmin })
+  }).then(function(r) {
+    if (r.status === 204) {
+      refreshAdminUserList();
+      toast(makeAdmin ? t('adminPromoted') : t('adminDemoted'));
+    } else {
+      r.json().then(function(d) { setAdminError(d.error || t('adminUpdateFailed')); });
+    }
+  }).catch(function() { setAdminError(t('adminUpdateFailed')); });
 }
 
 function updateDbIndicator() {
@@ -875,7 +1168,33 @@ var dict = {
     loginSubmit: "Sign In",
     loginMissing: "Enter username and password",
     loginFailed: "Invalid credentials",
-    logoutBtn: "Logout"
+    logoutBtn: "Logout",
+    adminBtn: "Manage Users",
+    adminTitle: "Manage Users",
+    newUsername: "Username",
+    newPassword: "Password (min 6)",
+    newAdminLabel: "Make this user an admin",
+    adminCreateBtn: "Add User",
+    adminMissing: "Username and a 6+ char password required",
+    adminCreated: "User added",
+    adminCreateFailed: "Could not add user",
+    adminDelete: "Delete",
+    adminDeleted: "User deleted",
+    adminDeleteFailed: "Could not delete user",
+    adminResetPwd: "Reset password",
+    adminPwdReset: "Password reset",
+    adminPwdResetFailed: "Could not reset password",
+    adminPwdTooShort: "Password must be at least 6 characters",
+    adminMakeAdmin: "Make admin",
+    adminMakeWorker: "Make worker",
+    adminPromoted: "User promoted to admin",
+    adminDemoted: "Admin demoted to worker",
+    adminUpdateFailed: "Could not update user",
+    adminLoadFailed: "Could not load user list",
+    adminRoleTagAdmin: "Admin",
+    adminRoleTagUser: "Worker",
+    confirmDeleteUser: "Delete user '{user}'? Their expenses will be removed too.",
+    promptNewPassword: "New password for {user}:"
   },
   fr: {
     headerTitle: "Suivi des D\u00E9penses",
@@ -950,7 +1269,33 @@ var dict = {
     loginSubmit: "Se connecter",
     loginMissing: "Entrez nom d'utilisateur et mot de passe",
     loginFailed: "Identifiants invalides",
-    logoutBtn: "Déconnexion"
+    logoutBtn: "Déconnexion",
+    adminBtn: "Gérer les utilisateurs",
+    adminTitle: "Gérer les utilisateurs",
+    newUsername: "Nom d'utilisateur",
+    newPassword: "Mot de passe (min 6)",
+    newAdminLabel: "Faire de cet utilisateur un admin",
+    adminCreateBtn: "Ajouter",
+    adminMissing: "Nom d'utilisateur et mot de passe (6+ caractères) requis",
+    adminCreated: "Utilisateur ajouté",
+    adminCreateFailed: "Échec de l'ajout",
+    adminDelete: "Supprimer",
+    adminDeleted: "Utilisateur supprimé",
+    adminDeleteFailed: "Échec de la suppression",
+    adminResetPwd: "Réinitialiser",
+    adminPwdReset: "Mot de passe réinitialisé",
+    adminPwdResetFailed: "Échec de la réinitialisation",
+    adminPwdTooShort: "Le mot de passe doit contenir au moins 6 caractères",
+    adminMakeAdmin: "Promouvoir admin",
+    adminMakeWorker: "Rétrograder",
+    adminPromoted: "Utilisateur promu admin",
+    adminDemoted: "Admin rétrogradé",
+    adminUpdateFailed: "Échec de la mise à jour",
+    adminLoadFailed: "Impossible de charger la liste",
+    adminRoleTagAdmin: "Admin",
+    adminRoleTagUser: "Ouvrier",
+    confirmDeleteUser: "Supprimer l'utilisateur « {user} » ? Ses dépenses seront aussi supprimées.",
+    promptNewPassword: "Nouveau mot de passe pour {user} :"
   }
 };
 
@@ -1031,6 +1376,17 @@ function applyLang() {
   assignText('logoutBtn', d.logoutBtn);
   var lu = document.getElementById('loginUsername'); if (lu) lu.placeholder = d.loginUsername;
   var lp = document.getElementById('loginPassword'); if (lp) lp.placeholder = d.loginPassword;
+
+  /* admin panel */
+  assignText('adminBtn', d.adminBtn);
+  assignText('adminTitle', d.adminTitle);
+  assignText('newAdminLabel', d.newAdminLabel);
+  assignText('adminCreateBtn', d.adminCreateBtn);
+  var nu = document.getElementById('newUsername'); if (nu) nu.placeholder = d.newUsername;
+  var np = document.getElementById('newPassword'); if (np) np.placeholder = d.newPassword;
+  // re-render the user list if the admin panel is open, so role labels follow the language
+  var ov = document.getElementById('adminOverlay');
+  if (ov && !ov.classList.contains('hidden')) refreshAdminUserList();
 
   /* dropdowns */
   populateSelect('category', catOptions(), keepVal('category'));
