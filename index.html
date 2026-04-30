@@ -280,6 +280,7 @@
   /* table */
   .table-wrap { overflow-x: auto; border-radius: var(--radius-sm); }
   table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  td.notes-cell { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   th {
     text-align: left;
     padding: 12px 10px;
@@ -618,10 +619,95 @@
   .no-project-banner strong { color: var(--accent); display: block; margin-bottom: 4px; }
 
   @media (max-width: 640px) {
-    .app-header { flex-direction: column; }
+    .container { padding: 14px 14px 60px; }
+    .app-header { flex-direction: column; align-items: stretch; }
+    .header-actions { gap: 6px; }
     .app-title { font-size: 1.3rem; }
     .stat-card .value { font-size: 1.3rem; }
-    .form-grid { grid-template-columns: 1fr 1fr; }
+    .form-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .filter-bar { gap: 6px; }
+    .filter-bar select, .filter-bar input { flex: 1 1 calc(50% - 4px); min-width: 0; }
+
+    /* expand the touch target for primary buttons on phones */
+    .btn { padding: 11px 16px; min-height: 42px; }
+    .btn-ghost, .btn-danger { min-height: 38px; }
+    .field input, .field select { padding: 12px 12px; }
+
+    /* expense list: rows become stacked cards instead of a horizontal table */
+    .table-wrap { overflow: visible; }
+    table, table tbody, table tr, table td { display: block; width: 100%; }
+    table thead { display: none; }
+    table tr {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    table tr:hover { background: var(--surface2); }
+    table td {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: none;
+      gap: 12px;
+    }
+    table td::before {
+      content: attr(data-label);
+      color: var(--sub);
+      font-weight: 700;
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      flex-shrink: 0;
+    }
+    table td.notes-cell {
+      max-width: none;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+    table td.notes-cell { text-align: right; }
+    table td.actions-cell {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      margin-top: 6px;
+      justify-content: flex-end;
+    }
+    table td.actions-cell::before { display: none; }
+    .row-actions .icon-btn { min-width: 38px; min-height: 38px; }
+
+    /* admin overlay: stack each user/project row vertically on phones */
+    .admin-card { padding: 20px; }
+    .admin-add-form { grid-template-columns: 1fr; }
+    .admin-user-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .admin-user-row .name { font-size: 1rem; }
+    .admin-user-row select { max-width: none; width: 100%; padding: 8px 10px; font-size: .85rem; }
+    .admin-user-row .actions {
+      width: 100%;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .admin-user-row button {
+      flex: 1 1 auto;
+      padding: 8px 12px;
+      font-size: .75rem;
+      min-height: 38px;
+    }
+  }
+
+  /* very narrow phones (older iPhone SE etc.) */
+  @media (max-width: 380px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .stat-card { padding: 14px; }
+    .stat-card .value { font-size: 1.15rem; }
+    .filter-bar select, .filter-bar input { flex-basis: 100%; }
   }
 </style>
 </head>
@@ -1246,11 +1332,11 @@ function updateDbIndicator() {
 
   if (storageMode === 'api') {
     dot.className = 'status-dot dot-server';
-    lbl.textContent = 'SQLite';
+    lbl.textContent = t('dbOnline');
     btn.className = 'btn-db db-server';
   } else {
     dot.className = 'status-dot dot-local';
-    lbl.textContent = 'local';
+    lbl.textContent = t('dbOffline');
     btn.className = 'btn-db db-local';
   }
 }
@@ -1376,7 +1462,9 @@ var dict = {
     promptProjectName: "New name:",
     confirmDeleteProject: "Delete project '{name}'? All its expenses will be removed too.",
     noProjectTitle: "No project assigned",
-    noProjectMsg: "Ask an admin to assign you to a project before you can add expenses."
+    noProjectMsg: "Ask an admin to assign you to a project before you can add expenses.",
+    dbOnline: "Online",
+    dbOffline: "Offline"
   },
   fr: {
     headerTitle: "Suivi des D\u00E9penses",
@@ -1497,7 +1585,9 @@ var dict = {
     promptProjectName: "Nouveau nom :",
     confirmDeleteProject: "Supprimer le projet « {name} » ? Toutes ses dépenses seront aussi supprimées.",
     noProjectTitle: "Aucun projet affecté",
-    noProjectMsg: "Demandez à un admin de vous affecter à un projet avant d'ajouter des dépenses."
+    noProjectMsg: "Demandez à un admin de vous affecter à un projet avant d'ajouter des dépenses.",
+    dbOnline: "En ligne",
+    dbOffline: "Hors ligne"
   }
 };
 
@@ -1594,6 +1684,9 @@ function applyLang() {
   /* no-project banner for unassigned workers */
   assignText('noProjectTitle', d.noProjectTitle);
   assignText('noProjectMsg', d.noProjectMsg);
+
+  /* db indicator follows the language */
+  updateDbIndicator();
 
   // re-render lists if the admin panel is open, so role labels and project options follow the language
   var ov = document.getElementById('adminOverlay');
@@ -1940,18 +2033,19 @@ function render() {
     empty.classList.add('hidden');
     var et = t('editTitle');
     var dt = t('deleteTitle');
+    var d = dict[currLang];
     tbody.innerHTML = filtered.map(function(e) {
       var desc = e.description || e.desc || '';
       var pb = e.paid_by || e.paidBy || '';
       return '<tr>' +
-        '<td>' + (e.date || '\u2014') + '</td>' +
-        '<td>' + esc(desc) + '</td>' +
-        '<td>' + displayCat(e.category) + '</td>' +
-        '<td class="amount-cell">' + fmtAmount(e.amount || 0) + '</td>' +
-        '<td>' + (pb ? esc(pb) : '\u2014') + '</td>' +
-        '<td>' + badge(e.status) + '</td>' +
-        '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escAttr(e.notes || '') + '">' + (e.notes ? esc(e.notes) : '\u2014') + '</td>' +
-        '<td><div class="row-actions">' +
+        '<td data-label="' + d.thDate + '">' + (e.date || '\u2014') + '</td>' +
+        '<td data-label="' + d.thDesc + '">' + esc(desc) + '</td>' +
+        '<td data-label="' + d.thCat + '">' + displayCat(e.category) + '</td>' +
+        '<td class="amount-cell" data-label="' + d.thAmt + '">' + fmtAmount(e.amount || 0) + '</td>' +
+        '<td data-label="' + d.thPaidBy + '">' + (pb ? esc(pb) : '\u2014') + '</td>' +
+        '<td data-label="' + d.thStatus + '">' + badge(e.status) + '</td>' +
+        '<td class="notes-cell" data-label="' + d.thNotes + '" title="' + escAttr(e.notes || '') + '">' + (e.notes ? esc(e.notes) : '\u2014') + '</td>' +
+        '<td class="actions-cell"><div class="row-actions">' +
           '<button class="icon-btn" onclick="editExpense(\'' + escAttr(e.id) + '\')" title="' + et + '">\u270E</button>' +
           '<button class="icon-btn danger" onclick="deleteExpense(\'' + escAttr(e.id) + '\')" title="' + dt + '">\u2715</button>' +
         '</div></td>' +
