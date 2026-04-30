@@ -252,6 +252,8 @@ This creates a new commit that undoes the bad one and triggers a fresh deploy. P
 | Push doesn't trigger a build | GitHub app permissions revoked | https://github.com/settings/installations → Railway → Configure → Repository access. |
 | `502 Bad Gateway` on first request after deploy | gunicorn workers still booting | Normal for ~5–10s after a new deploy. Should self-resolve. |
 | `OperationalError: too many connections` | Pool size × workers > Postgres limit | Lower `DB_POOL_MAX` env var (default 5) or reduce gunicorn workers in `Procfile` (`-w 1`). Hobby Postgres has ~20 connection cap. |
+| Login screen never appears after auth deploy | Service worker is serving the pre-auth HTML from cache | Hard-reload once (Ctrl/Cmd+Shift+R). Or DevTools → Application → Storage → Clear site data → reload. The cache version was bumped to `v4` to force this on next visit. |
+| Login form shows "Invalid credentials" with the bootstrap user | Trailing whitespace in `INITIAL_PASSWORD` (paste artifact), or the user was created with a different password than you remember | `railway run python scripts/add_user.py <username> <new_password>` — overrides the password in place. Bootstrap is one-shot; only `add_user.py` resets passwords after the first user exists. |
 
 ---
 

@@ -1,4 +1,4 @@
-const CACHE = 'expenses-v3';
+const CACHE = 'expenses-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -10,7 +10,11 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  // Stay in 'waiting' until the page tells us to take over.
+  // Force-activate v4: pre-auth versions of this app cached HTML that
+  // doesn't know about the SKIP_WAITING message protocol, so they would
+  // otherwise stay stuck on the old shell forever. Future versions can
+  // drop this once everyone is on v4+.
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {

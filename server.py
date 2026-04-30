@@ -129,7 +129,7 @@ def bootstrap_initial_user():
         return
 
     username = (os.environ.get('INITIAL_USERNAME') or '').strip()
-    password = os.environ.get('INITIAL_PASSWORD') or ''
+    password = (os.environ.get('INITIAL_PASSWORD') or '').strip()
     if not username or not password:
         if USE_POSTGRES:
             print("WARNING: no users in DB and INITIAL_USERNAME/INITIAL_PASSWORD not set. "
