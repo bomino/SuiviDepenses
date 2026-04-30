@@ -1,5 +1,6 @@
 import os
 import uuid
+from contextlib import contextmanager
 from flask import Flask, request, jsonify, send_from_directory, abort
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -16,8 +17,8 @@ USE_POSTGRES = bool(DATABASE_URL)
 app = Flask(__name__)
 
 if USE_POSTGRES:
-    import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 
     PH = '%s'
     AMOUNT_TYPE = 'NUMERIC'
@@ -25,8 +26,16 @@ if USE_POSTGRES:
     SEED_PROJECT = "INSERT INTO project (id, name) VALUES (1, 'My Project') ON CONFLICT (id) DO NOTHING"
     UPSERT_PROJECT = f"INSERT INTO project (id, name) VALUES (1, {PH}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name"
 
-    def connect():
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    _pool = ConnectionPool(
+        DATABASE_URL,
+        min_size=1,
+        max_size=int(os.environ.get('DB_POOL_MAX', '5')),
+        kwargs={'row_factory': dict_row},
+        open=True,
+    )
+
+    def get_conn():
+        return _pool.connection()
 else:
     import sqlite3
 
@@ -37,30 +46,30 @@ else:
     SEED_PROJECT = "INSERT OR IGNORE INTO project (id, name) VALUES (1, 'My Project')"
     UPSERT_PROJECT = f"INSERT OR REPLACE INTO project (id, name) VALUES (1, {PH})"
 
-    def connect():
+    @contextmanager
+    def get_conn():
         conn = sqlite3.connect(DB)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 
 def q(sql, params=()):
     """Execute SQL and return (rows, rowcount). Manages connection lifecycle."""
-    conn = connect()
-    try:
+    with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(sql, params)
         rows = cur.fetchall() if cur.description else []
         rc = cur.rowcount
         conn.commit()
         return rows, rc
-    finally:
-        conn.close()
 
 
 def init_db():
-    conn = connect()
-    try:
+    with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(f"""
             CREATE TABLE IF NOT EXISTS expenses (
@@ -82,8 +91,6 @@ def init_db():
         """)
         cur.execute(SEED_PROJECT)
         conn.commit()
-    finally:
-        conn.close()
 
 
 init_db()
@@ -123,6 +130,18 @@ def validated_expense(data):
         'status': status,
         'notes': (data.get('notes') or '').strip()[:200],
     }, None
+
+
+# ─── health ───
+@app.route('/health')
+def health():
+    """Cheap liveness probe. Checks DB reachability so Railway only routes traffic
+    to workers whose backend wired up correctly on boot."""
+    try:
+        q("SELECT 1")
+        return jsonify({'ok': True, 'engine': 'postgres' if USE_POSTGRES else 'sqlite'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 503
 
 
 # ─── frontend ───

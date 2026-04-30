@@ -31,11 +31,7 @@ Open `http://localhost:5000`. Data goes to `expenses.db` next to `server.py`. An
 
 ### Option 3: Production deploy (Railway + Postgres)
 
-The same `server.py` switches to Postgres automatically when `DATABASE_URL` is set in the environment. On Railway:
-
-1. Connect the GitHub repo and add a Postgres plugin — Railway injects `DATABASE_URL` for you.
-2. The included `Procfile` runs `gunicorn` with two workers.
-3. First boot creates the schema (`CREATE TABLE IF NOT EXISTS`).
+`server.py` auto-detects Postgres when `DATABASE_URL` is set. On Railway, that's a one-click plugin. See [`DEPLOY.md`](./DEPLOY.md) for the full step-by-step guide (project setup, Postgres, custom domain, monitoring, backups, rollback, troubleshooting, cost estimates).
 
 Locally you can mimic prod by exporting `DATABASE_URL=postgres://...` before running, or just leave it unset to use SQLite.
 
