@@ -378,6 +378,84 @@
 
   .hidden { display: none !important; }
 
+  /* login overlay */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, .94);
+    backdrop-filter: blur(6px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  }
+  .login-card h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .login-card .login-sub { font-size: .8rem; color: var(--sub); margin-bottom: 20px; }
+  .login-card input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: .9rem;
+    margin-bottom: 12px;
+    font-family: inherit;
+  }
+  .login-card input:focus { outline: none; border-color: var(--accent); }
+  .login-card .login-btn {
+    width: 100%;
+    padding: 10px;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: .9rem;
+    margin-top: 4px;
+  }
+  .login-card .login-btn:hover { filter: brightness(1.1); }
+  .login-card .login-btn:disabled { opacity: .5; cursor: wait; }
+  .login-error {
+    color: var(--red);
+    font-size: .8rem;
+    margin-top: 10px;
+    min-height: 1.2em;
+  }
+
+  .user-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    font-size: .72rem;
+    font-weight: 700;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
   @media (max-width: 640px) {
     .app-header { flex-direction: column; }
     .app-title { font-size: 1.3rem; }
@@ -406,6 +484,8 @@
       <button class="btn-lang" onclick="toggleLang()" id="langBtn" title="Changer de langue / Switch language">FR</button>
       <button class="btn btn-ghost" onclick="exportCSV()" id="exportBtn">Export</button>
       <button class="btn btn-danger" onclick="clearAll()" id="clearBtn">Clear</button>
+      <span class="user-pill hidden" id="userPill"></span>
+      <button class="btn btn-ghost hidden" onclick="doLogout()" id="logoutBtn">Logout</button>
     </div>
   </div>
 
@@ -511,6 +591,17 @@
 
 </div>
 
+<div class="login-overlay hidden" id="loginOverlay">
+  <form class="login-card" onsubmit="doLogin(event)">
+    <h2 id="loginTitle">Sign In</h2>
+    <div class="login-sub" id="loginSub">Enter your credentials to continue</div>
+    <input type="text" id="loginUsername" autocomplete="username" placeholder="Username" required>
+    <input type="password" id="loginPassword" autocomplete="current-password" placeholder="Password" required>
+    <button type="submit" class="login-btn" id="loginSubmitBtn">Sign In</button>
+    <div class="login-error" id="loginError"></div>
+  </form>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 <div class="install-banner" id="installBanner">
   <h4 id="installMsg">Install this app for quick access</h4>
@@ -588,16 +679,55 @@ function installPWA() {
   }
 }
 
-/* ─────────── storage mode detection ─────────── */
+/* ─────────── storage mode detection + auth ─────────── */
 var storageMode = 'local'; /* 'local' | 'api' */
+var currentUser = null;
+
+function showLogin() {
+  var ov = document.getElementById('loginOverlay');
+  if (ov) ov.classList.remove('hidden');
+  setTimeout(function() {
+    var u = document.getElementById('loginUsername');
+    if (u) u.focus();
+  }, 50);
+}
+
+function hideLogin() {
+  var ov = document.getElementById('loginOverlay');
+  if (ov) ov.classList.add('hidden');
+  var err = document.getElementById('loginError');
+  if (err) err.textContent = '';
+  var pw = document.getElementById('loginPassword');
+  if (pw) pw.value = '';
+}
+
+function updateUserUI() {
+  var pill = document.getElementById('userPill');
+  var btn = document.getElementById('logoutBtn');
+  if (currentUser) {
+    if (pill) { pill.textContent = currentUser; pill.classList.remove('hidden'); }
+    if (btn) btn.classList.remove('hidden');
+  } else {
+    if (pill) pill.classList.add('hidden');
+    if (btn) btn.classList.add('hidden');
+  }
+}
 
 function detectBackend() {
-  fetch('/api/expenses', { method: 'GET', signal: AbortSignal.timeout(1500) })
+  fetch('/api/me', { method: 'GET', signal: AbortSignal.timeout(1500) })
     .then(function(r) {
-      if (r.ok) {
+      if (r.status === 401) {
         storageMode = 'api';
         updateDbIndicator();
-        loadFromApi();
+        showLogin();
+      } else if (r.ok) {
+        storageMode = 'api';
+        updateDbIndicator();
+        r.json().then(function(d) {
+          currentUser = d.username;
+          updateUserUI();
+          loadFromApi();
+        });
       } else {
         storageMode = 'local';
         updateDbIndicator();
@@ -609,6 +739,48 @@ function detectBackend() {
       updateDbIndicator();
       loadFromLocal();
     });
+}
+
+function doLogin(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  var u = (document.getElementById('loginUsername').value || '').trim();
+  var p = document.getElementById('loginPassword').value || '';
+  var err = document.getElementById('loginError');
+  var btn = document.getElementById('loginSubmitBtn');
+  if (err) err.textContent = '';
+  if (!u || !p) { if (err) err.textContent = t('loginMissing'); return; }
+  if (btn) btn.disabled = true;
+
+  fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: u, password: p })
+  }).then(function(r) {
+    if (btn) btn.disabled = false;
+    return r.json().then(function(d) { return { ok: r.ok, body: d }; });
+  }).then(function(res) {
+    if (res.ok) {
+      currentUser = res.body.username;
+      updateUserUI();
+      hideLogin();
+      loadFromApi();
+    } else {
+      if (err) err.textContent = res.body.error || t('loginFailed');
+    }
+  }).catch(function() {
+    if (btn) btn.disabled = false;
+    if (err) err.textContent = t('loginFailed');
+  });
+}
+
+function doLogout() {
+  fetch('/api/logout', { method: 'POST' }).then(function() {
+    currentUser = null;
+    expenses = [];
+    updateUserUI();
+    render();
+    showLogin();
+  });
 }
 
 function updateDbIndicator() {
@@ -695,7 +867,15 @@ var dict = {
     dismissBtn: "Dismiss",
     updateMsg: "A new version is available",
     refreshBtn: "Refresh",
-    updateDismissBtn: "Later"
+    updateDismissBtn: "Later",
+    loginTitle: "Sign In",
+    loginSub: "Enter your credentials to continue",
+    loginUsername: "Username",
+    loginPassword: "Password",
+    loginSubmit: "Sign In",
+    loginMissing: "Enter username and password",
+    loginFailed: "Invalid credentials",
+    logoutBtn: "Logout"
   },
   fr: {
     headerTitle: "Suivi des D\u00E9penses",
@@ -762,7 +942,15 @@ var dict = {
     dismissBtn: "Ignorer",
     updateMsg: "Nouvelle version disponible",
     refreshBtn: "Actualiser",
-    updateDismissBtn: "Plus tard"
+    updateDismissBtn: "Plus tard",
+    loginTitle: "Connexion",
+    loginSub: "Entrez vos identifiants pour continuer",
+    loginUsername: "Nom d'utilisateur",
+    loginPassword: "Mot de passe",
+    loginSubmit: "Se connecter",
+    loginMissing: "Entrez nom d'utilisateur et mot de passe",
+    loginFailed: "Identifiants invalides",
+    logoutBtn: "Déconnexion"
   }
 };
 
@@ -835,6 +1023,14 @@ function applyLang() {
   assignText('updateMsg', d.updateMsg);
   assignText('refreshBtn', d.refreshBtn);
   assignText('updateDismissBtn', d.updateDismissBtn);
+
+  /* login */
+  assignText('loginTitle', d.loginTitle);
+  assignText('loginSub', d.loginSub);
+  assignText('loginSubmitBtn', d.loginSubmit);
+  assignText('logoutBtn', d.logoutBtn);
+  var lu = document.getElementById('loginUsername'); if (lu) lu.placeholder = d.loginUsername;
+  var lp = document.getElementById('loginPassword'); if (lp) lp.placeholder = d.loginPassword;
 
   /* dropdowns */
   populateSelect('category', catOptions(), keepVal('category'));

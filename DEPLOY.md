@@ -82,6 +82,22 @@ After saving, Railway redeploys the service. This time:
 
 ---
 
+## Step 2.5 — Set required environment variables
+
+Still in the service's **Variables** tab, add these three:
+
+| Variable | Value | Why |
+|---|---|---|
+| `SECRET_KEY` | a long random string (e.g. `python -c "import secrets; print(secrets.token_hex(32))"`) | Signs the session cookies. **Required in production** — `server.py` refuses to boot without it when `DATABASE_URL` is set. |
+| `INITIAL_USERNAME` | the first admin's username (e.g. `lawry`) | One-time bootstrap. After the first user exists, this var is ignored on subsequent boots. |
+| `INITIAL_PASSWORD` | a strong password for that user | Same — read once on the very first boot, then irrelevant. |
+
+After the first deploy succeeds, you may delete `INITIAL_USERNAME` / `INITIAL_PASSWORD` from Railway — they're not read again. **Do not** delete `SECRET_KEY`; rotating it logs everyone out (sessions become invalid).
+
+To rotate `SECRET_KEY` later, generate a new value and replace it. All existing sessions become invalid; users re-login.
+
+---
+
 ## Step 3 — First deploy
 
 Railway auto-builds whenever you push to `main`, but the **first time** you'll trigger it manually:
@@ -239,30 +255,93 @@ This creates a new commit that undoes the bad one and triggers a fresh deploy. P
 
 ---
 
-## Post-launch hardening
+## Managing users
 
-The bare deploy is **functional but unauthenticated** — anyone with the URL can wipe the DB. Pick one before sharing the URL externally.
+Auth is **Flask-Login + bcrypt** (Tier 2) — session cookies, server-side password hashing, no third-party identity provider. The first user is bootstrapped via `INITIAL_USERNAME` / `INITIAL_PASSWORD` (Step 2.5). For everyone after that:
 
-### Tier 1 — Shared bearer token (~30 min, ~40 LOC)
+### Add a user
 
-Set a `ACCESS_TOKEN` env var in Railway. Add a `before_request` hook in `server.py` that requires `Authorization: Bearer $ACCESS_TOKEN` on `/api/*`. Frontend prompts once, stashes in `localStorage`. Good for: 1–5 trusted users sharing a secret.
+```bash
+# Locally (SQLite)
+python scripts/add_user.py supervisor sitepass99
 
-### Tier 2 — Multi-user (~2 hours, Flask-Login + bcrypt)
+# On Railway (Postgres)
+railway run python scripts/add_user.py supervisor sitepass99
+```
 
-Add a `users` table. Use Flask-Login for sessions, bcrypt for password hashing. Add a `/login` page. Good for: 5–20 named users you control.
+The script also **updates the password** if the username already exists — useful for resets:
 
-### Tier 3 — Supabase Auth (~3 hours)
+```bash
+railway run python scripts/add_user.py supervisor newpass99
+# → "Updated password for existing user 'supervisor'"
+```
 
-Use Supabase as the identity provider. Frontend uses `@supabase/supabase-js` for login (email + magic link or OAuth). Flask verifies the JWT on every API call using PyJWT and Supabase's JWT secret. Good for: real product, social login, multi-tenant.
+Minimum password length: 6 characters (enforced by the script). Bcrypt cost is the library default (12 rounds).
 
-> Pick Tier 1 first if you're racing to hand a URL to a foreman tonight. Upgrade later — Tier 1 is a strict subset of every other approach, so no migration cost.
+### List users
 
-### Other quick wins
+```bash
+railway run python -c "import server; rows,_=server.q('SELECT username FROM users'); print([r['username'] for r in rows])"
+```
 
-- **Rate limiting:** add Flask-Limiter (`pip install Flask-Limiter`), 60 req/min per IP. Stops trivial scraping.
-- **Secret scanning:** GitHub has it on by default for public repos. If you ever commit a `DATABASE_URL`, GitHub blocks the push. Don't bypass.
-- **HTTPS-only cookies / sessions:** if you add any auth that uses cookies, set `SESSION_COOKIE_SECURE = True` in the Postgres branch of `server.py`.
-- **CSP header:** `Content-Security-Policy: default-src 'self'` blocks any future XSS from loading external scripts. One-line Flask response header.
+### Delete a user
+
+```bash
+railway run python -c "import server; server.q('DELETE FROM users WHERE username = ' + server.PH, ('supervisor',))"
+```
+
+(That user's session cookies become useless on next request — `user_loader` returns `None` and Flask-Login signs them out.)
+
+### Force everyone to re-login
+
+Rotate `SECRET_KEY` in Railway and let the service redeploy. All previously issued session cookies become invalid signatures and users see the login screen on next request.
+
+---
+
+## Further hardening (optional)
+
+The deploy as documented is safe for trusted multi-user use. If you're going public-internet, stack these on top:
+
+### Rate limiting
+
+Install Flask-Limiter (`pip install Flask-Limiter`), wrap the app, then:
+
+```python
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per minute"])
+
+@app.route('/api/login', methods=['POST'])
+@limiter.limit("5 per minute")
+def api_login(): ...
+```
+
+That throttles brute-force login attempts to 5/min/IP. **Add `werkzeug.middleware.proxy_fix.ProxyFix`** when behind Railway's proxy so the limiter sees the real client IP, not the proxy's:
+
+```python
+from werkzeug.middleware.proxy_fix import ProxyFix
+if USE_POSTGRES:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+```
+
+### CSP header
+
+One-liner blocks any future XSS from loading external scripts:
+
+```python
+@app.after_request
+def csp(resp):
+    resp.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    return resp
+```
+
+### Secret scanning
+
+GitHub scans public repos by default. If you ever commit a `DATABASE_URL` or other token, the push is blocked. Don't bypass with `--no-verify`. For private repos: enable Push Protection in repo Settings → Code security.
+
+### Backups (paid Pro tier or DIY cron)
+
+See [Backup, restore, direct DB access](#backup-restore-direct-db-access). At a minimum, schedule a weekly `pg_dump` to local disk before sharing the URL.
 
 ---
 
