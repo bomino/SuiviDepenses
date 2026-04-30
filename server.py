@@ -5,11 +5,11 @@ from flask import Flask, request, jsonify, send_from_directory, abort
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB = os.path.join(BASE_DIR, 'expenses.db')
-HTML_FILE = 'expense-tracker.html'
+HTML_FILE = 'index.html'
 
 ALLOWED_CATEGORIES = {'Materials', 'Labor', 'Equipment', 'Permits', 'Subcontractors', 'Transport', 'Utilities', 'Misc'}
 ALLOWED_STATUSES = {'Paid', 'Pending', 'Unpaid'}
-SERVABLE_FILES = {'expense-tracker.html', 'manifest.json', 'sw.js'}
+SERVABLE_FILES = {'index.html', 'manifest.json', 'sw.js'}
 
 app = Flask(__name__)
 

@@ -1,5 +1,5 @@
-const CACHE = 'expenses-v1';
-const ASSETS = ['/', '/expense-tracker.html', '/manifest.json'];
+const CACHE = 'expenses-v2';
+const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));

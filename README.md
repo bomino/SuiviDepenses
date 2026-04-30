@@ -18,7 +18,7 @@ A bilingual (EN/FR) PWA for tracking construction project expenses. Works standa
 
 ### Option 1: GitHub Pages (zero setup)
 
-Push `expense-tracker.html`, `manifest.json`, and `sw.js` to a repo with GitHub Pages enabled. Open the URL — data persists in the browser.
+Push `index.html`, `manifest.json`, and `sw.js` to a repo with GitHub Pages enabled. Open the URL — data persists in the browser (localStorage; per-device, no shared state).
 
 ### Option 2: Local server (shared SQLite storage)
 
@@ -35,7 +35,7 @@ Open `http://localhost:5000`. All users on the network see the same database.
 
 | File | Purpose |
 |---|---|
-| `expense-tracker.html` | PWA frontend with dark UI |
+| `index.html` | PWA frontend with dark UI |
 | `manifest.json` | PWA manifest |
 | `sw.js` | Service worker for offline caching |
 | `server.py` | Flask + SQLite API backend |
