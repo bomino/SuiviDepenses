@@ -9,6 +9,9 @@ __pycache__/
 .venv/
 venv/
 
+# Railway / Heroku log exports
+logs*.json
+
 # editors / OS
 .vscode/
 .idea/

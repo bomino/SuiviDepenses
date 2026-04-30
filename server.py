@@ -95,6 +95,10 @@ def _schema_needs_wipe(cur):
         cur.execute("SELECT user_id FROM expenses LIMIT 1")
         return False
     except Exception:
+        # Postgres aborts the whole transaction when a SELECT references a
+        # missing column; the rollback frees the connection so the DROP
+        # statements that follow can run. SQLite's rollback() is a no-op here.
+        cur.connection.rollback()
         return True
 
 
